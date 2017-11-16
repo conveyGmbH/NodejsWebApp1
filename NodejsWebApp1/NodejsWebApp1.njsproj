@@ -1,0 +1,147 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003" ToolsVersion="4.0">
+  <PropertyGroup>
+    <VisualStudioVersion Condition="'$(VisualStudioVersion)' == ''">11.0</VisualStudioVersion>
+    <VSToolsPath Condition="'$(VSToolsPath)' == ''">$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)</VSToolsPath>
+    <Name>NodejsWebApp1</Name>
+    <RootNamespace>NodejsWebApp1</RootNamespace>
+    <NameOfLastUsedPublishProfile>NodejsWebApp120170629081514 - Web Deploy</NameOfLastUsedPublishProfile>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>09127af6-0ecc-4803-97be-44cb7c0e6825</ProjectGuid>
+    <ProjectHome>.</ProjectHome>
+    <StartupFile>server.js</StartupFile>
+    <SearchPath>
+    </SearchPath>
+    <WorkingDirectory>.</WorkingDirectory>
+    <OutputPath>.</OutputPath>
+    <TargetFrameworkVersion>v4.0</TargetFrameworkVersion>
+    <ProjectTypeGuids>{3AF33F2E-1136-4D97-BBB7-1795711AC8B8};{349c5851-65df-11da-9384-00065b846f21};{9092AA53-FB77-4645-B42D-1CCCA6BD08BD}</ProjectTypeGuids>
+    <ProjectView>ShowAllFiles</ProjectView>
+    <NodejsPort>1337</NodejsPort>
+    <StartWebBrowser>true</StartWebBrowser>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="lib\convey\scripts\appbar.js" />
+    <Compile Include="lib\convey\scripts\appSettings.js" />
+    <Compile Include="lib\convey\scripts\colorPicker.js" />
+    <Compile Include="lib\convey\scripts\colors.js" />
+    <Compile Include="lib\convey\scripts\dataService.js" />
+    <Compile Include="lib\convey\scripts\dbinit.js" />
+    <Compile Include="lib\convey\scripts\fragmentController.js" />
+    <Compile Include="lib\convey\scripts\inertia.js" />
+    <Compile Include="lib\convey\scripts\logging.js" />
+    <Compile Include="lib\convey\scripts\navigator.js" />
+    <Compile Include="lib\convey\scripts\pageController.js" />
+    <Compile Include="lib\convey\scripts\pageFrame.js" />
+    <Compile Include="lib\convey\scripts\replService.js" />
+    <Compile Include="lib\convey\scripts\sqlite.js" />
+    <Compile Include="lib\convey\scripts\strings.js" />
+    <Compile Include="lib\convey\scripts\workerService.js" />
+    <Compile Include="lib\WinJS\scripts\base.js" />
+    <Compile Include="lib\WinJS\scripts\base.min.js" />
+    <Compile Include="lib\WinJS\scripts\en-US\ui.strings.js" />
+    <Compile Include="lib\WinJS\scripts\intrinsics.js" />
+    <Compile Include="lib\WinJS\scripts\intrinsics.min.js" />
+    <Compile Include="lib\WinJS\scripts\tv.js" />
+    <Compile Include="lib\WinJS\scripts\ui.js" />
+    <Compile Include="lib\WinJS\scripts\ui.min.js" />
+    <Compile Include="lib\WinJS\scripts\WinJS.intellisense.js" />
+    <Compile Include="lib\WinJS\scripts\WinJS.intellisense-setup.js" />
+    <Compile Include="server.js" />
+    <Compile Include="worker\callOcr\callOcr.js" />
+    <Compile Include="worker\selectMitarbeiter\selectMitarbeiter.js" />
+    <Compile Include="worker\selectVeranstaltung\selectVeranstaltung.js" />
+    <Content Include="lib\WinJS\css\ui-dark-intrinsics.css" />
+    <Content Include="lib\WinJS\css\ui-dark-intrinsics.min.css" />
+    <Content Include="lib\WinJS\css\ui-dark-tv.css" />
+    <Content Include="lib\WinJS\css\ui-dark-tv.min.css" />
+    <Content Include="lib\WinJS\css\ui-dark.css" />
+    <Content Include="lib\WinJS\css\ui-dark.min.css" />
+    <Content Include="lib\WinJS\css\ui-light-intrinsics.css" />
+    <Content Include="lib\WinJS\css\ui-light-intrinsics.min.css" />
+    <Content Include="lib\WinJS\css\ui-light-tv.css" />
+    <Content Include="lib\WinJS\css\ui-light-tv.min.css" />
+    <Content Include="lib\WinJS\css\ui-light.css" />
+    <Content Include="lib\WinJS\css\ui-light.min.css" />
+    <Content Include="lib\WinJS\fonts\Symbols.ttf" />
+    <Content Include="lib\WinJS\scripts\base.min.js.map" />
+    <Content Include="lib\WinJS\scripts\intrinsics.min.js.map" />
+    <Content Include="lib\WinJS\scripts\ui.min.js.map" />
+    <Content Include="Web.config" />
+    <None Include="Web.Debug.config" />
+    <Content Include="package.json" />
+    <Content Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="lib\" />
+    <Folder Include="lib\convey\" />
+    <Folder Include="lib\convey\scripts\" />
+    <Folder Include="lib\WinJS\" />
+    <Folder Include="lib\WinJS\css\" />
+    <Folder Include="lib\WinJS\fonts\" />
+    <Folder Include="lib\WinJS\scripts\" />
+    <Folder Include="lib\WinJS\scripts\en-US\" />
+    <Folder Include="typings\" />
+    <Folder Include="typings\globals\" />
+    <Folder Include="typings\globals\node\" />
+    <Folder Include="worker\" />
+    <Folder Include="worker\callOcr\" />
+    <Folder Include="worker\selectMitarbeiter\" />
+    <Folder Include="worker\selectVeranstaltung\" />
+  </ItemGroup>
+  <ItemGroup>
+    <TypeScriptCompile Include="typings\globals\node\index.d.ts" />
+    <TypeScriptCompile Include="typings\index.d.ts" />
+  </ItemGroup>
+  <!-- Do not delete the following Import Project.  While this appears to do nothing it is a marker for setting TypeScript properties before our import that depends on them. -->
+  <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\TypeScript\Microsoft.TypeScript.targets" Condition="False" />
+  <Import Project="$(VSToolsPath)\Node.js Tools\Microsoft.NodejsTools.targets" />
+  <ProjectExtensions>
+    <VisualStudio>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}">
+        <WebProjectProperties>
+          <UseIIS>False</UseIIS>
+          <AutoAssignPort>True</AutoAssignPort>
+          <DevelopmentServerPort>0</DevelopmentServerPort>
+          <DevelopmentServerVPath>/</DevelopmentServerVPath>
+          <IISUrl>http://localhost:48022/</IISUrl>
+          <NTLMAuthentication>False</NTLMAuthentication>
+          <UseCustomServer>True</UseCustomServer>
+          <CustomServerUrl>http://localhost:1337</CustomServerUrl>
+          <SaveServerSettingsInUserFile>False</SaveServerSettingsInUserFile>
+        </WebProjectProperties>
+      </FlavorProperties>
+      <FlavorProperties GUID="{349c5851-65df-11da-9384-00065b846f21}" User="">
+        <WebProjectProperties>
+          <StartPageUrl>
+          </StartPageUrl>
+          <StartAction>CurrentPage</StartAction>
+          <AspNetDebugging>True</AspNetDebugging>
+          <SilverlightDebugging>False</SilverlightDebugging>
+          <NativeDebugging>False</NativeDebugging>
+          <SQLDebugging>False</SQLDebugging>
+          <ExternalProgram>
+          </ExternalProgram>
+          <StartExternalURL>
+          </StartExternalURL>
+          <StartCmdLineArguments>
+          </StartCmdLineArguments>
+          <StartWorkingDirectory>
+          </StartWorkingDirectory>
+          <EnableENC>False</EnableENC>
+          <AlwaysStartWebServerOnDebug>False</AlwaysStartWebServerOnDebug>
+        </WebProjectProperties>
+      </FlavorProperties>
+    </VisualStudio>
+  </ProjectExtensions>
+</Project>
