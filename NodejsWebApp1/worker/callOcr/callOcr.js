@@ -16,7 +16,7 @@
     var ocrUuid = null;
 
     var dispatcher = {
-        //blub
+
         startup: function() {
             Log.call(Log.l.trace, "callOcr.");
             var uuid = UUID.create();
