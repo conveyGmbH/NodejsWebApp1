@@ -11,6 +11,24 @@
     "use strict";
 
     WinJS.Namespace.define("AppData", {
+        DocGroup: {
+            Image: 1,
+            Text: 3
+        },
+        isSvg: function(docGroup, docFormat) {
+            if (docGroup === AppData.DocGroup.Text && docFormat === 75) {
+                return true;
+            } else {
+                return false;
+            }
+        },
+        isImg: function (docGroup, docFormat) {
+            if (docGroup === AppData.DocGroup.Image) {
+                return true;
+            } else {
+                return false;
+            }
+        },
         /**
          * @class formatViewData 
          * @memberof AppData
@@ -87,6 +105,16 @@
                 }
             },
             _isLocal: false,
+            _maxPageSize: 0,
+            maxPageSize: {
+                get: function() {
+                    return this._maxPageSize;
+                },
+                set: function(newMaxPageSize) {
+                    this._maxPageSize = newMaxPageSize;
+                }
+            },
+            _pages: [],
             /**
              * @property {boolean} isLocal - Retrieves if the relation object relies in local SQLite databese storage
              * @memberof AppData.formatViewData
@@ -663,6 +691,7 @@
                 var that = this;
                 var fncSelect;
                 var filterString = null;
+                that._pages = [];
                 if (that._isLocal) {
                     fncSelect = function () {
                         var relationName = that.relationName;
@@ -695,8 +724,8 @@
                         return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
                             Log.print(Log.l.info, "xsql: SELECT success");
                             var results = [];
+                            var i, j;
                             if (res && res.rows) {
-                                var i;
                                 if (that.formatId) {
                                     for (i = 0; i < res.rows.length; i++) {
                                         results[i] = res.rows.item(i);
@@ -711,6 +740,26 @@
                                 d: {
                                     results: results
                                 }
+                            }
+                            if (that._maxPageSize && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
+                                for (i = 0, j = 0; i < json.d.results.length; i += that._maxPageSize) {
+                                    var page;
+                                    if (i + that._maxPageSize < json.d.results.length) {
+                                        page = {
+                                            results: json.d.results.slice(i, i + that._maxPageSize),
+                                            __next: "page://" + (j + 1).toString()
+                                        }
+                                    } else {
+                                        page = {
+                                            results: json.d.results.slice(i, json.d.results.length)
+                                        }
+                                        if (json.d.__next) {
+                                            page.__next = json.d.__next;
+                                        }
+                                    }
+                                    that._pages[j++] = page;
+                                }
+                                json.d = that._pages[0];
                             }
                             complete(json);
                         }, function (err) {
@@ -772,6 +821,26 @@
                             Log.print(Log.l.trace, "success!");
                             try {
                                 var json = jsonParse(response.responseText);
+                                if (that._maxPageSize && json && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
+                                    for (var i = 0, j = 0; i < json.d.results.length; i += that._maxPageSize) {
+                                        var page;
+                                        if (i + that._maxPageSize < json.d.results.length) {
+                                            page = {
+                                                results: json.d.results.slice(i, i + that._maxPageSize),
+                                                __next: "page://" + (j + 1).toString()
+                                            }
+                                        } else {
+                                            page = {
+                                                results: json.d.results.slice(i, json.d.results.length)
+                                            }
+                                            if (json.d.__next) {
+                                                page.__next = json.d.__next;
+                                            }
+                                        }
+                                        that._pages[j++] = page;
+                                    }
+                                    json.d = that._pages[0];
+                                }
                                 complete(json);
                             } catch (exception) {
                                 Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
@@ -808,14 +877,18 @@
                 Log.call(Log.l.trace, "AppData.formatViewData.");
                 var url = null;
                 if (response && response.d && response.d.__next) {
-                    var pos = response.d.__next.indexOf("://");
-                    if (pos > 0) {
-                        var pos2 = response.d.__next.substr(pos + 3).indexOf("/");
-                        if (pos2 > 0) {
-                            var pos3 = response.d.__next.substr(pos + 3 + pos2 + 1).indexOf("/");
-                            if (pos3 > 0) {
-                                url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath +
-                                    response.d.__next.substr(pos + 3 + pos2 + 1 + pos3);
+                    if (response.d.__next.substr(0, 7) === "page://") {
+                        url = response.d.__next;
+                    } else {
+                        var pos = response.d.__next.indexOf("://");
+                        if (pos > 0) {
+                            var pos2 = response.d.__next.substr(pos + 3).indexOf("/");
+                            if (pos2 > 0) {
+                                var pos3 = response.d.__next.substr(pos + 3 + pos2 + 1).indexOf("/");
+                                if (pos3 > 0) {
+                                    url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath +
+                                        response.d.__next.substr(pos + 3 + pos2 + 1 + pos3);
+                                }
                             }
                         }
                     }
@@ -839,29 +912,22 @@
              */
             selectNext: function (complete, error, prevResults, nextUrl) {
                 Log.call(Log.l.trace, "AppData.formatViewData.");
-                var ret;
+                var ret, i, j, page;
+                var that = this;
                 if (nextUrl) {
-                    var user = AppData.getOnlineLogin();
-                    var password = AppData.getOnlinePassword();
-                    var options = {
-                        type: "GET",
-                        url: nextUrl,
-                        user: user,
-                        password: password,
-                        customRequestInitializer: function (req) {
-                            if (typeof req.withCredentials !== "undefined") {
-                                req.withCredentials = true;
+                    if (nextUrl.substr(0, 7) === "page://") {
+                        i = parseInt(nextUrl.substr(7));
+                        if (that._pages && that._pages[i]) {
+                            page = that._pages[i];
+                        } else {
+                            page = {
+                                results: []
                             }
-                        },
-                        headers: {
-                            "Authorization": "Basic " + btoa(user + ":" + password)
                         }
-                    };
-                    Log.print(Log.l.info, "calling xhr method=GET url=" + nextUrl);
-                    ret = WinJS.xhr(options).then(function (response) {
-                        Log.print(Log.l.trace, "success!");
-                        try {
-                            var obj = jsonParse(response.responseText);
+                        var obj = {
+                            d: page
+                        }
+                        ret = WinJS.Promise.as().then(function () {
                             if (obj && obj.d) {
                                 if (prevResults) {
                                     prevResults = prevResults.concat(obj.d.results);
@@ -872,17 +938,71 @@
                                 var err = { status: 404, statusText: "no data found" };
                                 error(err);
                             }
-                        } catch (exception) {
-                            Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
-                            error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
-                        }
-                        return WinJS.Promise.as();
-                    }, function(errorResponse) {
-                        Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
-                        error(errorResponse);
-                    });
+                        });
+                    } else {
+                        that._pages = [];
+                        var user = AppData.getOnlineLogin();
+                        var password = AppData.getOnlinePassword();
+                        var options = {
+                            type: "GET",
+                            url: nextUrl,
+                            user: user,
+                            password: password,
+                            customRequestInitializer: function (req) {
+                                if (typeof req.withCredentials !== "undefined") {
+                                    req.withCredentials = true;
+                                }
+                            },
+                            headers: {
+                                "Authorization": "Basic " + btoa(user + ":" + password)
+                            }
+                        };
+                        Log.print(Log.l.info, "calling xhr method=GET url=" + nextUrl);
+                        ret = WinJS.xhr(options).then(function (response) {
+                            Log.print(Log.l.trace, "success!");
+                            try {
+                                var json = jsonParse(response.responseText);
+                                if (that._maxPageSize && json && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
+                                    for (i = 0, j = 0; i < json.d.results.length; i += that._maxPageSize) {
+                                        if (i + that._maxPageSize < json.d.results.length) {
+                                            page = {
+                                                results: json.d.results.slice(i, i + that._maxPageSize),
+                                                __next: "page://" + (j + 1).toString()
+                                            }
+                                        } else {
+                                            page = {
+                                                results: json.d.results.slice(i, json.d.results.length)
+                                            }
+                                            if (json.d.__next) {
+                                                page.__next = json.d.__next;
+                                            }
+                                        }
+                                        that._pages[j++] = page;
+                                    }
+                                    json.d = that._pages[0];
+                                }
+                                if (json && json.d) {
+                                    if (prevResults) {
+                                        prevResults = prevResults.concat(json.d.results);
+                                        json.d.results = prevResults;
+                                    }
+                                    complete(json);
+                                } else {
+                                    var err = { status: 404, statusText: "no data found" };
+                                    error(err);
+                                }
+                            } catch (exception) {
+                                Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
+                                error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
+                            }
+                            return WinJS.Promise.as();
+                        }, function (errorResponse) {
+                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            error(errorResponse);
+                        });
+                    }
                 } else {
-                    ret = WinJS.Promise.as(function() {
+                    ret = WinJS.Promise.as().then(function () {
                         var err = { status: 500, statusText: "invalid data returned" };
                         error(err);
                     });
@@ -1077,6 +1197,10 @@
                         Log.print(Log.l.info, "calling xhr method=DELETE url=" + url);
                         ret = WinJS.xhr(options).then(function (response) {
                             Log.print(Log.l.trace, "success!");
+                            var prevRecId = AppData.getRecordId(that.relationName);
+                            if (prevRecId === recordId) {
+                                AppData.setRecordId(that.relationName, null);
+                            }
                             complete(response);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
@@ -1702,6 +1826,48 @@
                     return this._baseRelationName;
                 }
             },
+            _oDataPkName: null,
+            _pkName: null,
+            /**
+             * @property {string} pkName - Column name of primary key
+             * @memberof AppData.lgntInitData
+             * @description Read-only. Retrieves the name of the primary key attribute in the relation object
+             */
+            pkName: {
+                get: function () {
+                    if (!this._pkName && this._attribSpecs) {
+                        for (var i = 0; i < this._attribSpecs.length; i++) {
+                            var attribSpec = this._attribSpecs[i];
+                            if (attribSpec.Function & 2048) { // primary key flag
+                                this._pkName = attribSpec.Name;
+                                this._oDataPkName = attribSpec.ODataAttributeName;
+                                break;
+                            }
+                        }
+                    }
+                    return this._pkName;
+                }
+            },
+            /**
+             * @property {string} oDataPkName - Column name of primary key in OData view
+             * @memberof AppData.formatViewData
+             * @description Read-only. Retrieves the name of the primary key attribute in the OData view
+             */
+            oDataPkName: {
+                get: function () {
+                    if (!this._oDataPkName && this._attribSpecs) {
+                        for (var i = 0; i < this._attribSpecs.length; i++) {
+                            var attribSpec = this._attribSpecs[i];
+                            if (attribSpec.Function & 2048) { // primary key flag
+                                this._pkName = attribSpec.Name;
+                                this._oDataPkName = attribSpec.ODataAttributeName;
+                                break;
+                            }
+                        }
+                    }
+                    return this._oDataPkName;
+                }
+            },
             /**
              * @function clear
              * @memberof AppData.lgntInitData
@@ -1878,6 +2044,71 @@
                     });
                 } else {
                     ret = loadAttribSpecs();
+                }
+                Log.ret(Log.l.trace);
+                return ret;
+            },
+            viewRecordFromTableRecord: function (that, tableRecord) {
+                var viewRecord = {};
+                if (tableRecord && that.attribSpecs && that.attribSpecs.length > 0) {
+                    for (var i = 0; i < that.attribSpecs.length; i++) {
+                        var baseAttributeName = that.attribSpecs[i].BaseAttributeName;
+                        if (baseAttributeName && typeof tableRecord[baseAttributeName] !== "undefined") {
+                            var viewAttributeName = that.attribSpecs[i].ODataAttributeName;
+                            Log.print(Log.l.trace, viewAttributeName + ": " + tableRecord[baseAttributeName]);
+                            viewRecord[viewAttributeName] = tableRecord[baseAttributeName];
+                        }
+                    }
+                }
+                return viewRecord;
+            },
+            extractTableRecord: function (that, complete, error, viewRecord, bInitTable) {
+                var ret;
+                Log.call(Log.l.trace, "AppData.lgntInitData.", "relationName=" + that.relationName + " bInitTable=" + bInitTable);
+                if (!that.attribSpecs) {
+                    ret = that.getAttribSpecs(that, that.extractTableRecord, complete, error, viewRecord);
+                } else {
+                    ret = new WinJS.Promise.as().then(function () {
+                        var tableRecord = {};
+                        if (viewRecord && that.attribSpecs && that.attribSpecs.length > 0) {
+                            var primKeyId;
+                            if (that._isLocal) {
+                                primKeyId = that.pkName;
+                            } else {
+                                primKeyId = that.relationName + "VIEWID";
+                            }
+                            for (var i = 0; i < that.attribSpecs.length; i++) {
+                                var baseAttributeName = that.attribSpecs[i].BaseAttributeName;
+                                if (baseAttributeName) {
+                                    if (bInitTable &&
+                                        (baseAttributeName === primKeyId ||
+                                         baseAttributeName === "LanguageSpecID" ||
+                                         baseAttributeName === "TranslateStatus")) {
+                                        Log.print(Log.l.trace, "extract InitTable: ignore column " + baseAttributeName);
+                                        continue;
+                                    }
+                                    var viewAttributeName = that.attribSpecs[i].ODataAttributeName;
+                                    if (typeof viewRecord[viewAttributeName] !== "undefined") {
+                                        if (typeof viewRecord[viewAttributeName] === "string" && viewRecord[viewAttributeName].length === 0) {
+                                            viewRecord[viewAttributeName] = null;
+                                        }
+                                        if (that._isLocal) {
+                                            Log.print(Log.l.trace, baseAttributeName + ": " + viewRecord[viewAttributeName]);
+                                            tableRecord[baseAttributeName] = viewRecord[viewAttributeName];
+                                        } else {
+                                            Log.print(Log.l.trace, viewAttributeName + ": " + viewRecord[viewAttributeName]);
+                                            tableRecord[viewAttributeName] = viewRecord[viewAttributeName];
+                                        }
+                                    }
+                                }
+                            }
+                            complete(tableRecord);
+                        } else {
+                            Log.print(Log.l.error, "no data in AttribSpecs");
+                            var err = { status: 500, statusText: "no data in AttribSpecs" };
+                            error(err);
+                        }
+                    });
                 }
                 Log.ret(Log.l.trace);
                 return ret;
@@ -2184,6 +2415,402 @@
                 });
 
                 // this will return a promise to controller
+                Log.ret(Log.l.trace);
+                return ret;
+            },
+            /**
+             * @function update
+             * @param {AppData.lgntInitData~complete} complete - Success handler callback.
+             * @param {AppData.lgntInitData~error} error - Error handler callback.
+             * @param {number} recordId - Primary key value of the data record to delete
+             * @param {Object} viewRecord - Database record object containing the attribute values to update 
+             * @returns {Object} The fulfillment of an asynchronous select operation returned in a {@link https://msdn.microsoft.com/en-us/library/windows/apps/br211867.aspx WinJS.Promise} object.
+             * @memberof AppData.lgntInitData
+             * @description Use this function to update a row in a table with the given record id and attribute values.
+             *  The function will not return a database record in response. 
+             */
+            update: function (complete, error, recordId, viewRecord, headers) {
+                Log.call(Log.l.trace, "AppData.lgntInitData.", "relationName=" + this.relationName + " recordId=" + recordId);
+                var that = this;
+                var tableRecord = null;
+                var updateTableRecord = function () {
+                    if (that._isLocal) {
+                        var primKeyId = that.pkName;
+                        if (typeof tableRecord[primKeyId] !== "undefined") {
+                            delete tableRecord[primKeyId];
+                        }
+                        var values = [];
+                        var stmt = "UPDATE \"" + that.relationName + "\"";
+                        var stmtValues = null;
+                        var i;
+                        for (i = 0; i < that.attribSpecs.length; i++) {
+                            var baseAttributeName = that.attribSpecs[i].BaseAttributeName;
+                            if (baseAttributeName &&
+                                typeof tableRecord[baseAttributeName] !== "undefined") {
+                                if (!stmtValues) {
+                                    stmtValues = " SET ";
+                                } else {
+                                    stmtValues += ",";
+                                }
+                                stmtValues += "\"" + baseAttributeName + "\"=?";
+                                values.push(tableRecord[baseAttributeName]);
+                            }
+                        }
+                        if (stmtValues) {
+                            values.push(recordId);
+                            stmt += stmtValues + " WHERE \"" + primKeyId + "\"=?";
+                            Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
+                            return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
+                                Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                                complete({});
+                            }, function (curerr) {
+                                Log.print(Log.l.error, "xsql: UPDATE returned " + curerr);
+                                error(curerr);
+                            });
+                        } else {
+                            Log.print(Log.l.trace, "nothing to update!");
+                            complete({});
+                            return WinJS.Promise.as();
+                        }
+                    } else {
+                        var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
+                        url += "/" + that.relationName + "_ODataVIEW(" + recordId.toString() + ")";
+                        var options = {
+                            type: "PUT",
+                            url: url,
+                            data: JSON.stringify(tableRecord)
+                        };
+                        if (typeof headers === "object") {
+                            options.headers = headers;
+                        } else {
+                            options.headers = {};
+                        }
+                        options.customRequestInitializer = function (req) {
+                            if (typeof req.withCredentials !== "undefined") {
+                                req.withCredentials = true;
+                            }
+                        };
+                        options.headers["Accept"] = "application/json";
+                        options.headers["Content-Type"] = "application/json";
+                        options.user = AppData.getOnlineLogin();
+                        options.password = AppData.getOnlinePassword();
+                        options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
+                        Log.print(Log.l.info, "calling xhr method=PUT url=" + url);
+                        return WinJS.xhr(options).then(function (response) {
+                            Log.print(Log.l.trace, "success!");
+                            complete(response);
+                            return WinJS.Promise.as();
+                        }, function (errorResponse) {
+                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            error(errorResponse);
+                        });
+                    }
+                };
+                var ret = that.extractTableRecord(that, function (tr) {
+                    Log.print(Log.l.trace, "extractTableRecord: SUCCESS!");
+                    tableRecord = tr;
+                }, error, viewRecord).then(function () {
+                    if (tableRecord) {
+                        return updateTableRecord();
+                    } else {
+                        return WinJS.Promise.as();
+                    }
+                });
+                Log.ret(Log.l.trace);
+                return ret;
+            },
+            /**
+             * @function deleteRecord
+             * @param {AppData.lgntInitData~complete} complete - Success handler callback.
+             * @param {AppData.lgntInitData~error} error - Error handler callback.
+             * @param {Object} viewRecord - Database record object containing the record to delete
+             * @returns {Object} The fulfillment of an asynchronous select operation returned in a {@link https://msdn.microsoft.com/en-us/library/windows/apps/br211867.aspx WinJS.Promise} object.
+             * @memberof AppData.lgntInitData
+             * @description Use this function to delete a row in a table with the given record id (primary key).
+             *  The function will not return a database record in response. 
+             */
+            deleteRecord: function (complete, error, viewRecord) {
+                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + this.relationName);
+                var that = this;
+                var tableRecord = null;
+                var fncDeleteRecord = function () {
+                    var initRelationName = that.relationName;
+                    if (initRelationName.substr(0, 4) === "LGNT") {
+                        initRelationName = initRelationName.substr(4);
+                    }
+                    var initKeyId = initRelationName + "ID";
+                    var initRecordId = tableRecord[initKeyId];
+                    var primKeyId;
+                    if (that._isLocal) {
+                        primKeyId = that.pkName;
+                    } else {
+                        primKeyId = that.relationName + "VIEWID";
+                    }
+                    var recordId = tableRecord[primKeyId];
+                    Log.print(Log.l.info, initKeyId + "=" + initRecordId + " " + primKeyId  + "=" + recordId);
+                    if (that._isLocal) {
+                        var stmt = "DELETE FROM \"" + initRelationName + "\" WHERE \"" + initKeyId + "\"=?";
+                        var values = [initRecordId];
+                        Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
+                            Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                            var prevRecId = AppData.getRecordId(that.relationName);
+                            if (prevRecId === recordId) {
+                                AppData.setRecordId(that.relationName, null);
+                            }
+                            complete({});
+                        }, function (curerr) {
+                            Log.print(Log.l.error, "xsql: DELETE returned " + curerr);
+                            error(curerr);
+                        });
+                    } else {
+                        Log.print(Log.l.trace, "calling deleteRecord: relationName=" + initRelationName + "_ODataVIEW recordId=" + initRecordId.toString());
+                        var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
+                        url += "/" + initRelationName + "_ODataVIEW(" + initRecordId.toString() + ")";
+                        var user = AppData.getOnlineLogin();
+                        var password = AppData.getOnlinePassword();
+                        var options = {
+                            type: "DELETE",
+                            url: url,
+                            user: user,
+                            password: password,
+                            customRequestInitializer: function (req) {
+                                if (typeof req.withCredentials !== "undefined") {
+                                    req.withCredentials = true;
+                                }
+                            },
+                            headers: {
+                                "Authorization": "Basic " + btoa(user + ":" + password)
+                            }
+                        };
+                        Log.print(Log.l.info, "calling xhr method=DELETE url=" + url);
+                        return WinJS.xhr(options).then(function (response) {
+                            Log.print(Log.l.trace, "success!");
+                            var prevRecId = AppData.getRecordId(that.relationName);
+                            if (prevRecId === recordId) {
+                                AppData.setRecordId(that.relationName, null);
+                            }
+                            complete(response);
+                            return WinJS.Promise.as();
+                        }, function (errorResponse) {
+                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            error(errorResponse);
+                            return WinJS.Promise.as();
+                        });
+                    }
+                };
+                var ret = that.extractTableRecord(that, function (tr) {
+                    Log.print(Log.l.trace, "extractTableRecord: SUCCESS!");
+                    tableRecord = tr;
+                }, error, viewRecord).then(function () {
+                    if (tableRecord) {
+                        return fncDeleteRecord();
+                    } else {
+                        return WinJS.Promise.as();
+                    }
+                });
+                Log.ret(Log.l.trace);
+                return ret;
+            },
+            /**
+             * @function insert
+             * @param {AppData.lgntInitData~complete} complete - Success handler callback.
+             * @param {AppData.lgntInitData~error} error - Error handler callback.
+             * @param {Object} viewRecord - Database record object containing the attribute values to insert
+             * @returns {Object} The fulfillment of an asynchronous select operation returned in a {@link https://msdn.microsoft.com/en-us/library/windows/apps/br211867.aspx WinJS.Promise} object.
+             * @memberof AppData.lgntInitData
+             * @description Use this function to select a database record. 
+             *  If the bWithId parameter is false (default), a new record id will be generated in the database.
+             *  The function will return the inserted database record object including the new primary key value in the response.d member of response. 
+             */
+            insert: function (complete, error, viewRecord, headers, bWithId) {
+                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + this.relationName + " bWithId=" + bWithId);
+                var that = this;
+                var tableRecord;
+                var languageId = AppData.getLanguageId();
+                var insertTableRecord = function () {
+                    var initRelationName = that.relationName;
+                    if (initRelationName.substr(0, 4) === "LGNT") {
+                        initRelationName = initRelationName.substr(4);
+                    }
+                    var initKeyId = initRelationName + "ID";
+                    if (!bWithId) {
+                        if (typeof tableRecord[initKeyId] !== "undefined") {
+                            Log.print(Log.l.info, "remove " + initKeyId + "=" + tableRecord[initKeyId] + " from record");
+                            delete tableRecord[initKeyId];
+                        }
+                    }
+                    var recordId = 0;
+                    if (that._isLocal) {
+                        var values = [];
+                        var stmt = "INSERT INTO \"" + initRelationName + "\"";
+                        var stmtValues = null;
+                        var i;
+                        for (i = 0; i < that.attribSpecs.length; i++) {
+                            var baseAttributeName = that.attribSpecs[i].BaseAttributeName;
+                            if (baseAttributeName &&
+                                typeof tableRecord[baseAttributeName] !== "undefined") {
+                                if (!stmtValues) {
+                                    stmt += "(";
+                                    stmtValues = ") VALUES (";
+                                } else {
+                                    stmt += ",";
+                                    stmtValues += ",";
+                                }
+                                stmt += "\"" + baseAttributeName + "\"";
+                                stmtValues += "?";
+                                values.push(tableRecord[baseAttributeName]);
+                            }
+                        }
+                        if (stmtValues) {
+                            stmtValues += ")";
+                            stmt += stmtValues;
+                        }
+                        Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (insertRes) {
+                            recordId = insertRes.insertId;
+                            Log.print(Log.l.info, "xsql: returned " + initKeyId + "=" + recordId);
+                            return WinJS.Promise.as();
+                        }, function (curerr) {
+                            Log.print(Log.l.error, "xsql: INSERT returned " + curerr);
+                            error(curerr);
+                            return WinJS.Promise.as();
+                        }).then(function () {
+                            if (recordId) {
+                                var relationName = that.relationName;
+                                stmt = "SELECT * FROM \"" + relationName + "\" WHERE \"" + initKeyId + "\"=? AND \"LanguageSpecID\"=?";
+                                values = [recordId, languageId];
+                                Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
+                                return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
+                                    Log.print(Log.l.info, "xsql: SELECT success");
+                                    if (res && res.rows && res.rows.length > 0) {
+                                        var result = that.viewRecordFromTableRecord(that, res.rows.item(0));
+                                        var json = {
+                                            d: result
+                                        }
+                                        complete(json);
+                                    } else {
+                                        Log.print(Log.l.error, "xsql: no data found in " + that.relationName + " for Id " + recordId);
+                                        var curerr = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
+                                        error(curerr);
+                                    }
+                                }, function (curerr) {
+                                    Log.print(Log.l.error, "xsql: SELECT returned " + curerr);
+                                    error(curerr);
+                                });
+                            } else {
+                                var err = { status: 404, statusText: "no data found" };
+                                Log.print(Log.l.error, "xsql: INSERT returned " + err);
+                                error(err);
+                                return WinJS.Promise.as();
+                            }
+                        });
+                    } else {
+                        var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.getOnlinePath(that._isRegister);
+                        url += "/" + initRelationName + "_ODataVIEW";
+                        var options = {
+                            type: "POST",
+                            url: url,
+                            data: JSON.stringify(tableRecord)
+                        };
+                        if (typeof headers === "object") {
+                            options.headers = headers;
+                        } else {
+                            options.headers = {};
+                        }
+                        options.customRequestInitializer = function (req) {
+                            if (typeof req.withCredentials !== "undefined") {
+                                req.withCredentials = true;
+                            }
+                        };
+                        options.headers["Accept"] = "application/json";
+                        options.headers["Content-Type"] = "application/json";
+                        options.user = AppData.getOnlineLogin(that._isRegister);
+                        options.password = AppData.getOnlinePassword(that._isRegister);
+                        options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
+                        Log.print(Log.l.info, "calling xhr method=POST url=" + url);
+                        return WinJS.xhr(options).then(function (response) {
+                            var err;
+                            Log.print(Log.l.trace, "INSERT success!");
+                            try {
+                                var obj = jsonParse(response.responseText);
+                                if (obj && obj.d) {
+                                    recordId = obj.d[initKeyId];
+                                    Log.print(Log.l.info, "INSERT returned " + initKeyId + "=" + recordId);
+                                } else {
+                                    err = { status: 404, statusText: "no data found" };
+                                    error(err);
+                                }
+                            } catch (exception) {
+                                Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
+                                err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
+                                error(err);
+                            }
+                            return WinJS.Promise.as();
+                        }, function (errorResponse) {
+                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            error(errorResponse);
+                        }).then(function () {
+                            if (recordId) {
+                                url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath + "/";
+                                url += "/" + that.relationName + "_ODataVIEW";
+                                // HTTP-GET request to remote server for JSON file response
+                                url += "?$filter=(LanguageSpecID%20eq%20" + languageId.toString();
+                                // select one line via id
+                                url += "%20and%20" + that.baseRelationName + "ID%20eq%20" + recordId.toString() + ")&$format=json";
+                                var user = AppData.getOnlineLogin(that._isRegister);
+                                var password = AppData.getOnlinePassword(that._isRegister);
+                                options = {
+                                    type: "GET",
+                                    url: url,
+                                    user: user,
+                                    password: password,
+                                    customRequestInitializer: function(req) {
+                                        if (typeof req.withCredentials !== "undefined") {
+                                            req.withCredentials = true;
+                                        }
+                                    },
+                                    headers: {
+                                        "Authorization": "Basic " + btoa(user + ":" + password)
+                                    }
+                                };
+                                Log.print(Log.l.info, "calling xhr GET url=" + url);
+                                return WinJS.xhr(options).then(function(response) {
+                                    Log.print(Log.l.trace, "success!");
+                                    try {
+                                        var json = jsonParse(response.responseText);
+                                        complete(json);
+                                    } catch (exception) {
+                                        Log.print(Log.l.error,
+                                            "resource parse error " + (exception && exception.message));
+                                        error({
+                                            status: 500,
+                                            statusText: "data parse error " + (exception && exception.message)
+                                        });
+                                    }
+                                    return WinJS.Promise.as();
+                                }, function(errorResponse) {
+                                    error(errorResponse);
+                                });
+                            } else {
+                                var err = { status: 404, statusText: "no data found" };
+                                Log.print(Log.l.error, "INSERT returned " + err);
+                                error(err);
+                                return WinJS.Promise.as();
+                            }
+                        });
+                    }
+                };
+                var ret = that.extractTableRecord(that, function (tr) {
+                    Log.print(Log.l.trace, "extractTableRecord: SUCCESS!");
+                    tableRecord = tr;
+                }, error, viewRecord, true).then(function () {
+                    if (tableRecord) {
+                        return insertTableRecord();
+                    } else {
+                        return WinJS.Promise.as();
+                    }
+                });
                 Log.ret(Log.l.trace);
                 return ret;
             },

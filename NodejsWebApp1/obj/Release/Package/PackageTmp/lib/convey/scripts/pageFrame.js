@@ -148,8 +148,42 @@
                 // Handle the application pause event 
                 onPause: function () {
                     Log.call(Log.l.trace, "PageFrame.", "");
-                    Application.pageframe.savePersistentStates();
+                    if (Application.navigator &&
+                        Application.navigator.pageElement &&
+                        typeof Application.navigator.pageElement.canUnload === "function") {
+                        Application.navigator.pageElement.canUnload(function(response) {
+                            Log.print(Log.l.trace, "onPause: canUnload success!");
+                            Application.pageframe.savePersistentStates();
+                        },function(errorResponse) {
+                            Log.print(Log.l.error, "onPause: canUnload failure " + errorResponse);
+                            Application.pageframe.savePersistentStates();
+                        });
+                    } else {
+                        Application.pageframe.savePersistentStates();
+                    }
                     Log.ret(Log.l.trace);
+                },
+
+                // Handle the application online event 
+                onOnline: function (eventInfo) {
+                    Log.call(Log.l.info, "PageFrame.", "");
+                    if (Application.navigator &&
+                        Application.navigator.pageControl &&
+                        typeof Application.navigator.pageControl.online === "function") {
+                        Application.navigator.pageControl.online(eventInfo);
+                    }
+                    Log.ret(Log.l.info);
+                },
+
+                // Handle the application resume event 
+                onOffline: function (eventInfo) {
+                    Log.call(Log.l.info, "PageFrame.", "");
+                    if (Application.navigator &&
+                        Application.navigator.pageControl &&
+                        typeof Application.navigator.pageControl.offline === "function") {
+                        Application.navigator.pageControl.offline(eventInfo);
+                    }
+                    Log.ret(Log.l.info);
                 },
 
                 openLocalDB: function (complete) {
@@ -175,27 +209,9 @@
                                 Log.print(Log.l.info, "using localStorage");
                                 var data = window.localStorage.getItem(Application.pageframe.filenamePersistentStates);
                                 if (data) {
-                                    var propertyName;
                                     AppData._persistentStates = JSON.parse(data);
                                     Log.print(Log.l.info, "data loaded from localStorage");
-                                    for (propertyName in AppData.persistentStatesDefaults) {
-                                        if (AppData.persistentStatesDefaults.hasOwnProperty(propertyName)) {
-                                            if (typeof AppData._persistentStates[propertyName] === "undefined" ||
-                                                propertyName === "definingRequests") {
-                                                AppData._persistentStates[propertyName] = AppData.persistentStatesDefaults[propertyName];
-                                                Log.print(Log.l.trace, "replaced default value[" + propertyName + "]=" + AppData._persistentStates[propertyName]);
-                                            }
-                                        }
-                                    }
-                                    for (propertyName in AppData.persistentStatesDefaults.odata) {
-                                        if (AppData.persistentStatesDefaults.odata.hasOwnProperty(propertyName)) {
-                                            if (typeof AppData._persistentStates.odata[propertyName] === "undefined" ||
-                                                propertyName === "definingRequests") {
-                                                AppData._persistentStates.odata[propertyName] = AppData.persistentStatesDefaults.odata[propertyName];
-                                                Log.print(Log.l.trace, "replaced default value[odata." + propertyName + "]=" + AppData._persistentStates.odata[propertyName]);
-                                            }
-                                        }
-                                    }
+                                    AppData._persistentStates = copyMissingMembersByValue(AppData._persistentStates, AppData.persistentStatesDefaults);
                                 }
                             }
                         } catch (exception) {
@@ -219,32 +235,9 @@
                                         var data = this.result;
                                         Log.print(Log.l.info, "Successful file read!");
                                         try {
-                                            var propertyName;
                                             AppData._persistentStates = JSON.parse(data);
                                             Log.print(Log.l.info, "data loaded from file name=" + Application.pageframe.filenamePersistentStates);
-                                            for (propertyName in AppData._persistentStates) {
-                                                if (AppData._persistentStates.hasOwnProperty(propertyName)) {
-                                                    Log.print(Log.l.info, "value[" + propertyName + "]=" + AppData._persistentStates[propertyName]);
-                                                }
-                                            }
-                                            for (propertyName in AppData.persistentStatesDefaults) {
-                                                if (AppData.persistentStatesDefaults.hasOwnProperty(propertyName)) {
-                                                    if (typeof AppData._persistentStates[propertyName] === "undefined" ||
-                                                        propertyName === "definingRequests") {
-                                                        AppData._persistentStates[propertyName] = AppData.persistentStatesDefaults[propertyName];
-                                                        Log.print(Log.l.trace, "replaced default value[" + propertyName + "]=" + AppData._persistentStates[propertyName]);
-                                                    }
-                                                }
-                                            }
-                                            for (propertyName in AppData.persistentStatesDefaults.odata) {
-                                                if (AppData.persistentStatesDefaults.odata.hasOwnProperty(propertyName)) {
-                                                    if (typeof AppData._persistentStates.odata[propertyName] === "undefined" ||
-                                                        propertyName === "definingRequests") {
-                                                        AppData._persistentStates.odata[propertyName] = AppData.persistentStatesDefaults.odata[propertyName];
-                                                        Log.print(Log.l.trace, "replaced default value[odata." + propertyName + "]=" + AppData._persistentStates.odata[propertyName]);
-                                                    }
-                                                }
-                                            }
+                                            AppData._persistentStates = copyMissingMembersByValue(AppData._persistentStates, AppData.persistentStatesDefaults);
                                         } catch (exception) {
                                             Log.print(Log.l.error, "loadPersistentStates parse error " + exception.message);
                                         }
@@ -575,11 +568,11 @@
                     var ret = null;
                     Log.call(Log.l.info, "PageFrame.", "");
                     if (!Application.pageframe.splashScreenDone) {
+                        Application.pageframe.splashScreenDone = 1;
                         var splashScreen = document.querySelector(".splash-screen-container");
                         if (splashScreen) {
                             Log.print(Log.l.info, "calling Animatioon.fadeOut for splashScreen");
                             ret = WinJS.UI.Animation.fadeOut(splashScreen).done(function () {
-                                Application.pageframe.splashScreenDone = 1;
                                 if (splashScreen.style) {
                                     splashScreen.style.display = "none";
                                 }
@@ -712,10 +705,10 @@
                     }).then(function () {
                         Log.print(Log.l.trace, "calling enableAnimations");
                         ui.enableAnimations();
-                        return WinJS.Promise.timeout(Application.pageframe.splashScreenDone ? 0 : 1000);
-                    }).then(function () {
                         // force colors again!
                         var colors = new Colors.ColorsClass(AppData._persistentStates.colorSettings, true);
+                        return WinJS.Promise.timeout(Application.pageframe.splashScreenDone ? 0 : 1000);
+                    }).then(function () {
                         return Application.pageframe.hideSplashScreen();
                     });
                     Log.ret(Log.l.trace, "");

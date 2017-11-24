@@ -12,9 +12,15 @@
     var errorCount = 0;
     var timestamp = null;
 
+    var UUID = require("uuid-js");
+    var ocrUuid = null;
+
     var dispatcher = {
+
         startup: function() {
             Log.call(Log.l.trace, "callOcr.");
+            var uuid = UUID.create();
+            ocrUuid = uuid.toString();
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
@@ -23,7 +29,7 @@
             var ret = null;
             Log.call(Log.l.trace, "callOcr.");
             ret = AppData.call("PRC_STARTCARDOCREX", {
-                pAktionStatus : "STARTOCR123456"
+                pAktionStatus: "OCR_START" + ocrUuid
             }, function(json) {
                 successCount++;
                 Log.print(Log.l.info, "select success! " + successCount + " success / " + errorCount + " errors");

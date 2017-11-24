@@ -13,6 +13,49 @@
     "use strict";
 
     WinJS.Namespace.define("Colors", {
+        resizeImageBase64: function (strBase64, contentType, maxSize, quality, minRatio) {
+            return new WinJS.Promise(function (complete, error) {
+                var imageData = "data:" + contentType + ";base64," + strBase64;
+                var image = new Image();
+                image.onload = function () {
+                    var ratio = Math.min(maxSize / this.width, maxSize / this.height);
+                    if (ratio < 1) {
+                        if (minRatio) {
+                            var exp = Math.floor(Math.log(1 / ratio) / Math.LN2);
+                            ratio = 1 / (2 ^ exp);
+                            if (ratio < minRatio) {
+                                ratio = minRatio;
+                            }
+                        }
+                        var imageWidth = ratio * this.width;
+                        var imageHeight = ratio * this.height;
+                        var canvas = document.createElement('canvas');
+
+                        canvas.width = imageWidth;
+                        canvas.height = imageHeight;
+
+                        var ctx = canvas.getContext("2d");
+                        ctx.drawImage(this, 0, 0, imageWidth, imageHeight);
+
+                        // The resized file ready for upload
+                        var finalFile;
+                        if (contentType === "image/jpeg" && quality > 0 && quality <= 100) {
+                            finalFile = canvas.toDataURL(contentType, quality / 100);
+                        } else {
+                            finalFile = canvas.toDataURL(contentType);
+                        }
+
+                        // Remove the prefix such as "data:" + contentType + ";base64," , in order to meet the Cordova API.
+                        var arr = finalFile.split(",");
+                        var newStr = finalFile.substr(arr[0].length + 1);
+                        complete(newStr);
+                    } else {
+                        complete(null);
+                    }
+                };
+                image.src = imageData;
+            });
+        },
         loadCSSfile: function(filename) {
             Log.call(Log.l.trace, "Colors.", "filename=" + filename);
             var fileref = document.createElement("link");
@@ -393,7 +436,9 @@
                     Colors.changeCSS(".accent-background-color", "background-color", Colors.accentColor);
                     Colors.changeCSS(".win-selectionstylefilled .win-selected .win-textbox:focus", "border-color", Colors.accentColor + " !important");
                     Colors.changeCSS(".row-bkg-gray", "opacity", Colors.isDarkTheme ? 0.2 : 0.1);
-                    Colors.changeCSS(".masterhost-container .pagecontrol", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
+                    //Colors.changeCSS(".masterhost-container .pagecontrol", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
+                    Colors.changeCSS(".masterhost-container .pagecontrol", "background-color", Colors.isDarkTheme ? "rgba(250,250,250,0.1)" : "rgba(32,32,32,0.1)");
+                    Colors.changeCSS(".list-container", "background-color", Colors.isDarkTheme ? "rgba(250,250,250,0.1)" : "rgba(32,32,32,0.1)");
                     Colors.changeCSS(".navigationbar-container", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
                     Colors.changeCSS(".titlearea", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
                     Colors.changeCSS(".status-on-off", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
@@ -473,6 +518,7 @@
                     document.body.style.backgroundColor = this._backgroundColor;
                     WinJS.Promise.timeout(500).then(function () {
                         Colors.changeCSS(".row-bkg", "background-color", Colors.backgroundColor);
+                        //Colors.changeCSS(".data-container", "background-color", Colors.backgroundColor);
                     });
                 }
                 if (typeof colorSettings.tileTextColor != "undefined" &&
@@ -806,9 +852,11 @@
             if (rootElement) {
                 var newElementList = rootElement.querySelectorAll("." + className);
                 if (newElementList && newElementList.length > 0) {
+                    var js = {};
+                    var numJoined = 0;
                     for (var i = 0; i < newElementList.length; i++) {
-                        var element = newElementList[i];
                         var id;
+                        var element = newElementList[i];
                         if (typeof attribute !== "undefined") {
                             id = element[attribute];
                         } else {
@@ -832,8 +880,15 @@
                                     element: svgParentElement,
                                     complete: complete
                                 });
+                                js[id] = ret;
+                                numJoined++;
                             }
                         }
+                    }
+                    if (numJoined > 1) {
+                        ret = new WinJS.Promise.as().then(function() {
+                            return WinJS.Promise.join(js);
+                        });
                     }
                 }
             }

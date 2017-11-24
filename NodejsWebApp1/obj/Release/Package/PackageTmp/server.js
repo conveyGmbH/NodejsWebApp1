@@ -51,8 +51,8 @@
         logNoStack: true,
         inputBorder: 1,
         odata: {
-            https: false,
-            hostName: "deimos.convey.de",
+            https: true,
+            hostName: "leadsuccess.convey.de",
             onlinePort: 8090,
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
@@ -93,8 +93,27 @@
     * Instanciate and the work loop object
     */
     var workLoop = new WorkerService.WorkLoop([
-        "selectMitarbeiter",
+        "selectMitarbeiter01",
+        "selectMitarbeiter02",
+        "selectMitarbeiter03",
+        "selectMitarbeiter04",
+        "selectMitarbeiter05",
+        "selectMitarbeiter06",
+        "selectMitarbeiter07",
+        "selectMitarbeiter08",
+        "selectMitarbeiter09",
+        "selectMitarbeiter10",
         "selectVeranstaltung",
+        "selectKontakt01",
+        "selectKontakt01",
+        "selectKontakt03",
+        "selectKontakt04",
+        "selectKontakt05",
+        "selectKontakt06",
+        "selectKontakt07",
+        "selectKontakt08",
+        "selectKontakt09",
+        "selectKontakt10",
         "callOcr"
     ], port);
 

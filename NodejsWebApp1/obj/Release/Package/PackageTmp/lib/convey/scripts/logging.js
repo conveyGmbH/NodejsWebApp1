@@ -92,9 +92,6 @@
                     index = caller.indexOf(".js");
                     str = caller.substr(0, index + 3);
                     index = str.lastIndexOf("/");
-                    if (index < 0) {
-                        index = str.lastIndexOf("\\");
-                    }
                     str = str.substr(index + 1, str.length);
 
                     var file = str;
@@ -222,7 +219,7 @@
                 Log.print(Log.l.info, "Logging changed");
             } else {
                 ret = new Log.Logging();
-                Log.print(Log.l.info, "Logging started");
+                Log.print(Log.l.info, "Logging started WinJS v." + WinJS.Utilities._version + " on platform: " + navigator.appVersion);
             }
             if (settings.group === true) {
                 Log._group = true;

@@ -18,7 +18,7 @@
     var dispatcher = {
         startup: function() {
             Log.call(Log.l.trace, "mitarbeiterSelect.");
-            dbEngine = AppData.getFormatView("Mitarbeiter", 0, false);
+            dbEngine = AppData.getFormatView("Mitarbeiter", 20431, false);
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
@@ -31,8 +31,8 @@
                     results = [];
                     if (json && json.d && json.d.results) {
                         for (var i = 0; i < json.d.results.length; i++) {
-                            Log.print(Log.l.info, "[" + i + "]: " + json.d.results[i].Login);
-                            results.push(json.d.results[i].Login);
+                            Log.print(Log.l.info, "[" + i + "]: " + json.d.results[i].Login + " Anz.Kontakte: " + json.d.results[i].AnzVersendeteKontakte);
+                            results.push(json.d.results[i].Login + " Anz.Kontakte: " + json.d.results[i].AnzVersendeteKontakte);
                         }
                     }
                     successCount++;
@@ -58,6 +58,8 @@
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
+
+        waitTimeMs: 50,
 
         info: function () {
             var infoText = successCount + " success / " + errorCount + " errors";

@@ -904,7 +904,7 @@
                             if (creationTsMss[i]) {
                                 row["CreationTS"] = "\/Date(" + creationTsMss[i] + ")\/";
                             }
-                            Log.print(Log.l.info, relation.relationName + "insert with recordId=" + recordId);
+                            Log.print(Log.l.info, relation.relationName + ": insert with recordId=" + recordId);
                             relation.insertWithId(function (json) {
                                 // this callback will be called asynchronously
                                 // when the response is available
@@ -942,30 +942,41 @@
                         if (bDoInsert) {
                             fnInsert();
                         } else {
-                            relation.update(function (response) {
-                                // called asynchronously if ok
-                                Log.print(Log.l.info, relation.relationName + " update: success! recordId=" + recordId);
-                                //if (modifiedTsMs > that._replPrevSelectMs) {
-                                //    that._replPrevSelectMs = modifiedTsMs;
-                                //}
-                                //if (!that._fetchNext && replicationFlowSpecViewId > that._replPrevFlowSpecId) {
-                                //    that._replPrevFlowSpecId = replicationFlowSpecViewId;
-                                //}
-                                if (that._fetchRequests[index]) {
-                                    that._fetchRequests[index].replicationDone[i] = true;
-                                    that._fetchRequests[index].done++;
-                                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                        that._fetchRequests[index].state = "finished";
-                                        that._fetchRequestsDone++;
-                                        that.checkForWaiting();
-                                    }
+                            relation.selectById(function (json) {
+                                if (json && json.d && json.d[relation.oDataPkName] === recordId) {
+                                    Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " exists, so do update!");
+                                    relation.update(function (response) {
+                                        // called asynchronously if ok
+                                        Log.print(Log.l.info, relation.relationName + " update: success! recordId=" + recordId);
+                                        //if (modifiedTsMs > that._replPrevSelectMs) {
+                                        //    that._replPrevSelectMs = modifiedTsMs;
+                                        //}
+                                        //if (!that._fetchNext && replicationFlowSpecViewId > that._replPrevFlowSpecId) {
+                                        //    that._replPrevFlowSpecId = replicationFlowSpecViewId;
+                                        //}
+                                        if (that._fetchRequests[index]) {
+                                            that._fetchRequests[index].replicationDone[i] = true;
+                                            that._fetchRequests[index].done++;
+                                            if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                                that._fetchRequests[index].state = "finished";
+                                                that._fetchRequestsDone++;
+                                                that.checkForWaiting();
+                                            }
+                                        }
+                                    }, function (errorResponse) {
+                                        // called asynchronously if an error occurs
+                                        // or server returns response with an error status.
+                                        Log.print(Log.l.info, relation.relationName + " update failed!");
+                                        fnInsert();
+                                    }, recordId, row);
+                                } else {
+                                    Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " does not exist, so try insert!");
+                                    fnInsert();
                                 }
                             }, function (errorResponse) {
-                                // called asynchronously if an error occurs
-                                // or server returns response with an error status.
-                                Log.print(Log.l.info, relation.relationName + " update failed!");
+                                Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " does not exist, so try insert!");
                                 fnInsert();
-                            }, recordId, row);
+                            }, recordId);
                         }
                     }
                 } else {
@@ -979,7 +990,7 @@
                 }
                 Log.ret(Log.l.trace);
             },
-            updateLocalData: function (relationName, recordId, row, index, subIndex) {
+            updateLocalData: function (relationName, recordId, row, index, subIndex, pollInterval) {
                 Log.call(Log.l.trace, "AppRepl.DbReplicator.", "");
                 var that = this;
                 var relation = AppData.getFormatView(relationName, 0, true, false, true);
@@ -995,18 +1006,34 @@
                         }
                     }
                     var fnInsert = function () {
-                        relation.insert(function (json) {
-                            // this callback will be called asynchronously
-                            // when the response is available
-                            if (json && json.d) {
-                                recordId = json.d[relation.oDataPkName];
-                            }
-                            if (recordId) {
-                                Log.print(Log.l.info, relation.relationName + " insertWithId: success! recordId=" + recordId);
-                                // contactData returns object already parsed from json file in response
-                                that.updateLocalRinf(relationName, recordId, index, subIndex, true);
-                            } else {
-                                Log.print(Log.l.error, "insert returned no data!");
+                        if (pollInterval === 1 &&
+                            typeof relation.insertWithId === "function") {
+                            Log.print(Log.l.info, relation.relationName + ": insert with recordId=" + recordId);
+                            relation.insertWithId(function (json) {
+                                // this callback will be called asynchronously
+                                // when the response is available
+                                if (json && json.d) {
+                                    recordId = json.d[relation.oDataPkName];
+                                }
+                                if (recordId) {
+                                    Log.print(Log.l.info, relation.relationName + " insertWithId: success! recordId=" + recordId);
+                                    // contactData returns object already parsed from json file in response
+                                    that.updateLocalRinf(relationName, recordId, index, subIndex, true);
+                                } else {
+                                    Log.print(Log.l.error, "insert returned no data!");
+                                    if (that._fetchRequests[index]) {
+                                        that._fetchRequests[index].done++;
+                                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                            that._fetchRequests[index].state = "finished";
+                                            that._fetchRequestsDone++;
+                                            that.checkForWaiting();
+                                        }
+                                    }
+                                }
+                            }, function (errorResponse) {
+                                // called asynchronously if an error occurs
+                                // or server returns response with an error status.
+                                Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
                                 if (that._fetchRequests[index]) {
                                     that._fetchRequests[index].done++;
                                     if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
@@ -1015,46 +1042,87 @@
                                         that.checkForWaiting();
                                     }
                                 }
-                            }
-                        }, function (errorResponse) {
-                            // called asynchronously if an error occurs
-                            // or server returns response with an error status.
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
-                            if (that._fetchRequests[index]) {
-                                that._fetchRequests[index].done++;
-                                if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                    that._fetchRequests[index].state = "finished";
-                                    that._fetchRequestsDone++;
-                                    that.checkForWaiting();
+                            }, row);
+                        } else {
+                            relation.insert(function (json) {
+                                // this callback will be called asynchronously
+                                // when the response is available
+                                if (json && json.d) {
+                                    recordId = json.d[relation.oDataPkName];
                                 }
-                            }
-                        }, row);
+                                if (recordId) {
+                                    Log.print(Log.l.info, relation.relationName + " insertWithId: success! recordId=" + recordId);
+                                    // contactData returns object already parsed from json file in response
+                                    that.updateLocalRinf(relationName, recordId, index, subIndex, true);
+                                } else {
+                                    Log.print(Log.l.error, "insert returned no data!");
+                                    if (that._fetchRequests[index]) {
+                                        that._fetchRequests[index].done++;
+                                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                            that._fetchRequests[index].state = "finished";
+                                            that._fetchRequestsDone++;
+                                            that.checkForWaiting();
+                                        }
+                                    }
+                                }
+                            }, function (errorResponse) {
+                                // called asynchronously if an error occurs
+                                // or server returns response with an error status.
+                                Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                                if (that._fetchRequests[index]) {
+                                    that._fetchRequests[index].done++;
+                                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                        that._fetchRequests[index].state = "finished";
+                                        that._fetchRequestsDone++;
+                                        that.checkForWaiting();
+                                    }
+                                }
+                            }, row);
+                        }
                     }
                     if (!recordId) {
                         fnInsert();
                     } else {
-                        relation.update(function (response) {
-                            // called asynchronously if ok
-                            Log.print(Log.l.info, relation.relationName + " update: success! recordId=" + recordId);
-                            that.updateLocalRinf(relationName, recordId, index, subIndex);
+                        relation.selectById(function (json) {
+                            if (json && json.d && json.d[relation.oDataPkName] === recordId) {
+                                Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " exists, so do update!");
+                                relation.update(function (response) {
+                                    // called asynchronously if ok
+                                    Log.print(Log.l.info, relation.relationName + " update: success! recordId=" + recordId);
+                                    that.updateLocalRinf(relationName, recordId, index, subIndex);
+                                }, function (errorResponse) {
+                                    // called asynchronously if an error occurs
+                                    // or server returns response with an error status.
+                                    Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                                    if (that._fetchRequests[index]) {
+                                        that._fetchRequests[index].done++;
+                                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                            that._fetchRequests[index].state = "finished";
+                                            that._fetchRequestsDone++;
+                                            that.checkForWaiting();
+                                        }
+                                    }
+                                }, recordId, row);
+                            } else {
+                                Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " does not exist, so try insert!");
+                                fnInsert();
+                            }
                         }, function (errorResponse) {
-                            // called asynchronously if an error occurs
-                            // or server returns response with an error status.
-                            Log.print(Log.l.info, relation.relationName + " update failed - try insert recordId=" + recordId);
+                            Log.print(Log.l.info, relation.relationName + ": recordId=" + recordId + " does not exist, so try insert!");
                             fnInsert();
-                        }, recordId, row);
+                        }, recordId);
                     }
                 }
                 Log.ret(Log.l.trace);
             },
             deleteLocalData: function (relationName, recordId, index, subIndex) {
                 Log.call(Log.l.trace, "AppRepl.DbReplicator.", "recordId=" + recordId);
+                var that = this;
                 if (!recordId) {
                     Log.print(Log.l.info, relationName + " deleteRecord: ignored! recordId=" + recordId);
                 } if (!that._fetchRequests[index]) {
                     Log.print(Log.l.info, relationName + " fetchRequests[" + index + "] does not exists");
                 } else {
-                    var that = this;
                     var relation = AppData.getFormatView(relationName, 0, true, false, true);
                     if (relation) {
                         var modifiedTsMss = that._fetchRequests[index].modifiedTsMss;
@@ -1126,7 +1194,7 @@
                 }
                 Log.ret(Log.l.trace);
             },
-            replaceReplicationDataKeys: function (relation, recordId, remoteRecordId, row, index, subIndex) {
+            replaceReplicationDataKeys: function (relation, recordId, remoteRecordId, row, index, subIndex, pollInterval) {
                 Log.call(Log.l.trace, "AppRepl.DbReplicator.", "");
                 var i;
                 var that = this;
@@ -1180,12 +1248,21 @@
                                             if (jsonLocal && jsonLocal.d) {
                                                 var rinfRow;
                                                 if (jsonLocal.d.results) {
-                                                    rinfRow = jsonLocal.d.results[0];
+                                                    if (jsonLocal.d.results.length > 0) {
+                                                        rinfRow = jsonLocal.d.results[0];
+                                                    } else {
+                                                        rinfRow = {};
+                                                    }
                                                 } else {
                                                     rinfRow = jsonLocal.d;
                                                 }
-                                                Log.print(Log.l.info, "RINF" + refTable + ": CreatorSiteID=" + rinfRow.CreatorSiteID + ",CreatorRecID=" + rinfRow.CreatorRecID + " found in localRINF: " + refKeyName + "=" + rinfRow[oDataPkNameLocal]);
-                                                row[refKeyName] = rinfRow[oDataPkNameLocal];
+                                                if (rinfRow[oDataPkNameLocal]) {
+                                                    Log.print(Log.l.info,"RINF" + refTable +": CreatorSiteID=" + rinfRow.CreatorSiteID + ",CreatorRecID=" + rinfRow.CreatorRecID + " found in localRINF: " + refKeyName +"=" + rinfRow[oDataPkNameLocal]);
+                                                    row[refKeyName] = rinfRow[oDataPkNameLocal];
+                                                } else {
+                                                    Log.print(Log.l.info, "RINF" + refTable + ": returned no data");
+                                                    err = { status: 404, statusText: "no data found in RINF" + refTable + " for Id " + refKeyId };
+                                                }
                                             } else {
                                                 Log.print(Log.l.info, "RINF" + refTable + ": returned no data");
                                                 err = { status: 404, statusText: "no data found in RINF" + refTable + " for Id " + refKeyId };
@@ -1201,7 +1278,7 @@
                                                     }
                                                 }
                                             } else if (keysDone === refKeyIds.length) {
-                                                that.updateLocalData(relation.relationName, recordId, row, index, subIndex);
+                                                that.updateLocalData(relation.relationName, recordId, row, index, subIndex, pollInterval);
                                             }
                                         }, function (errorResponse) {
                                             err = errorResponse;
@@ -1231,7 +1308,7 @@
                                         }
                                     }
                                 } else if (keysDone === refKeyIds.length) {
-                                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex);
+                                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex, pollInterval);
                                 }
                             }, function (errorResponse) {
                                 err = errorResponse;
@@ -1249,13 +1326,13 @@
                             WinJS.Promise.timeout(0).then(function() {
                                 keysDone++;
                                 if (keysDone === refKeyIds.length) {
-                                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex);
+                                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex, pollInterval);
                                 }
                             });
                         }
                     }
                 } else {
-                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex);
+                    that.updateLocalData(relation.relationName, recordId, row, index, subIndex, pollInterval);
                 }
                 Log.ret(Log.l.trace);
             },
@@ -1268,6 +1345,7 @@
                     return;
                 }
                 var relationName = that._fetchRequests[index].relationName;
+                var pollInterval = that._fetchRequests[index].pollInterval;
                 var recordIds = that._fetchRequests[index].recordIds;
                 var localRecIds = that._fetchRequests[index].localRecIds;
                 var accessStatuss = that._fetchRequests[index].accessStatuss;
@@ -1320,7 +1398,7 @@
                             if (that._fetchRequests[index]) {
                                 that._fetchRequests[index].state = "selected";
                                 // startContact returns object already parsed from json file in response
-                                if (json && json.d && json.d.results && json.d.results.length) {
+                                if (json && json.d && json.d.results && json.d.results.length > 0) {
                                     var results = json.d.results;
                                     that._fetchRequests[index].todo = results.length;
                                     if (results.length < recordIds.length) {
@@ -1334,12 +1412,17 @@
                                         if (j >= 0) {
                                             curRecordId = localRecIds[j];
                                             curAccessStatus = accessStatuss[j] % 10;
-                                            Log.print(Log.l.info, relationName + ": accessStatus=" + curAccessStatus);
+                                            if (!curRecordId && pollInterval === 1) {
+                                                curRecordId = remoteRecordId;
+                                                Log.print(Log.l.info, relationName + ": accessStatus=" + curAccessStatus + " use remoteRecordId!");
+                                            } else {
+                                                Log.print(Log.l.info, relationName + ": accessStatus=" + curAccessStatus);
+                                            }
                                             switch (curAccessStatus) {
                                                 case 1:
                                                 case 2:
                                                     Log.print(Log.l.info, relationName + ": found data to INSERT/UPDATE for remote recordId=" + remoteRecordId + ", local recordId=" + curRecordId);
-                                                    that.replaceReplicationDataKeys(relation, curRecordId, remoteRecordId, row, index, j);
+                                                    that.replaceReplicationDataKeys(relation, curRecordId, remoteRecordId, row, index, j, pollInterval);
                                                     break;
                                                 case 3:
                                                     Log.print(Log.l.info, relationName + ": IGNORE data to DELETE for remote recordId=" + remoteRecordId + ", local recordId=" + curRecordId);
@@ -1563,6 +1646,7 @@
                 Log.call(Log.l.trace, "AppRepl.DbReplicator.", "");
                 var prevRelationName = null;
                 var prevReplicationType = 0;
+                var prevPollInterval = null;
                 var numRows = 0;
                 var recordIds = [];
                 var creatorSiteIds = [];
@@ -1605,6 +1689,7 @@
                                 done: 0,
                                 relationName: prevRelationName,
                                 replicationType: prevReplicationType,
+                                pollInterval: prevPollInterval,
                                 recordIds: recordIds,
                                 creatorSiteIds: creatorSiteIds,
                                 creatorRecIds: creatorRecIds,
@@ -1630,6 +1715,7 @@
                             accessStatuss = [row.AccessStatus];
                             prevRelationName = row.RelationName;
                             prevReplicationType = row.ReplicationType;
+                            prevPollInterval = row.PollInterval;
                             numRows = 1;
                             if (i === length - 1) {
                                 that._fetchRequests.push({
@@ -1638,6 +1724,7 @@
                                     done: 0,
                                     relationName: prevRelationName,
                                     replicationType: prevReplicationType,
+                                    pollInterval: prevPollInterval,
                                     recordIds: recordIds,
                                     creatorSiteIds: creatorSiteIds,
                                     creatorRecIds: creatorRecIds,
@@ -1657,6 +1744,7 @@
                             creatorSiteIds.push(row.CreatorSiteID);
                             creatorRecIds.push(row.CreatorRecID);
                             creationTsMss.push(millisecondsCreationTs);
+                            modifierSiteIds.push(row.ModifierSiteID);
                             modifiedTsMss.push(milliseconds);
                             replicationFlowSpecViewIds.push(row.ReplicationFlowSpecVIEWID);
                             replicationDone.push(false);
@@ -1665,6 +1753,7 @@
                             accessStatuss.push(row.AccessStatus);
                             prevRelationName = row.RelationName;
                             prevReplicationType = row.ReplicationType;
+                            prevPollInterval = row.PollInterval;
                             numRows++;
                             that._fetchRequests.push({
                                 state: "created",
@@ -1672,6 +1761,7 @@
                                 done: 0,
                                 relationName: prevRelationName,
                                 replicationType: prevReplicationType,
+                                pollInterval: prevPollInterval,
                                 recordIds: recordIds,
                                 creatorSiteIds: creatorSiteIds,
                                 creatorRecIds: creatorRecIds,
@@ -1699,6 +1789,7 @@
                             accessStatuss.push(row.AccessStatus);
                             prevRelationName = row.RelationName;
                             prevReplicationType = row.ReplicationType;
+                            prevPollInterval = row.PollInterval;
                             numRows++;
                         }
                     }

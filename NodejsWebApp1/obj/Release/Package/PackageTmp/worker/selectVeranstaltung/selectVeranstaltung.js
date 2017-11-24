@@ -59,7 +59,7 @@
             return WinJS.Promise.as();
         },
 
-        waitTimeMs: 5000,
+        //waitTimeMs: 5000,
 
         info: function () {
             var infoText = successCount + " success / " + errorCount + " errors";
