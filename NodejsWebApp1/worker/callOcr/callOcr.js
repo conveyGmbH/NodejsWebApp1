@@ -8,36 +8,36 @@
 (function () {
     "use strict";
 
-    var successCount = 0;
-    var errorCount = 0;
-    var timestamp = null;
 
     var UUID = require("uuid-js");
-    var ocrUuid = null;
 
     var dispatcher = {
 
         startup: function() {
             Log.call(Log.l.trace, "callOcr.");
+            this.successCount = 0;
+            this.errorCount = 0;
+            this.timestamp = null;
             var uuid = UUID.create();
-            ocrUuid = uuid.toString();
+            this.ocrUuid = uuid.toString();
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
 
         activity: function () {
             var ret = null;
+            var that = this;
             Log.call(Log.l.trace, "callOcr.");
             ret = AppData.call("PRC_STARTCARDOCREX", {
-                pAktionStatus: "OCR_START" + ocrUuid
+                pAktionStatus: "OCR_START" + this.ocrUuid
             }, function(json) {
-                successCount++;
-                Log.print(Log.l.info, "select success! " + successCount + " success / " + errorCount + " errors");
-                timestamp = new Date();
+                that.successCount++;
+                Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
+                that.timestamp = new Date();
             }, function (error) {
-                errorCount++;
-                Log.print(Log.l.error, "select error! " + successCount + " success / " + errorCount + " errors");
-                timestamp = new Date();
+                that.errorCount++;
+                Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                that.timestamp = new Date();
             });
             Log.ret(Log.l.trace);
             return ret;
@@ -51,7 +51,7 @@
 
         info: function () {
             Log.call(Log.l.trace, "callOcr.");
-            var infoText = successCount + " success / " + errorCount + " errors";
+            var infoText = this.successCount + " success / " + this.errorCount + " errors";
             if (timestamp) {
                 infoText += "\n" + timestamp.toLocaleTimeString();
             }

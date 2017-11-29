@@ -8,41 +8,39 @@
 (function () {
     "use strict";
 
-    var successCount = 0;
-    var errorCount = 0;
-    var timestamp = null;
-
-    var dbEngine = null;
-    var results = [];
-
     var dispatcher = {
         startup: function() {
             Log.call(Log.l.trace, "veranstaltungSelect.");
-            dbEngine = AppData.getFormatView("Veranstaltung", 0, false);
+            this.successCount = 0;
+            this.errorCount = 0;
+            this.timestamp = null;
+            this.dbEngine = AppData.getFormatView("Veranstaltung", 0, false);
+            this.results = [];
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
 
         activity: function () {
             var ret = null;
+            var that = this;
             Log.call(Log.l.trace, "veranstaltungSelect.");
-            if (dbEngine) {
-                ret = dbEngine.select(function(json) {
-                    results = [];
+            if (this.dbEngine) {
+                ret = this.dbEngine.select(function(json) {
+                    that.results = [];
                     if (json && json.d && json.d.results) {
                         for (var i = 0; i < json.d.results.length; i++) {
                             Log.print(Log.l.info, "[" + i + "]: " + json.d.results[i].Name);
-                            results.push(json.d.results[i].Name);
+                            that.results.push(json.d.results[i].Name);
                         }
                     }
-                    successCount++;
-                    Log.print(Log.l.info, "select success! " + successCount + " success / " + errorCount + " errors");
-                    timestamp = new Date();
+                    that.successCount++;
+                    Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
                 }, function(error) {
-                    results = [];
-                    errorCount++;
-                    Log.print(Log.l.error, "select error! " + successCount + " success / " + errorCount + " errors");
-                    timestamp = new Date();
+                    that.results = [];
+                    that.errorCount++;
+                    Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
                 });
             } else {
                 Log.Print(Log.l.error, "not initialized!");
@@ -54,7 +52,7 @@
 
         dispose: function() {
             Log.call(Log.l.trace, "veranstaltungSelect.");
-            dbEngine = null;
+            this.dbEngine = null;
             Log.ret(Log.l.trace);
             return WinJS.Promise.as();
         },
@@ -62,13 +60,13 @@
         //waitTimeMs: 5000,
 
         info: function () {
-            var infoText = successCount + " success / " + errorCount + " errors";
-            if (timestamp) {
-                infoText += "\n" + timestamp.toLocaleTimeString();
+            var infoText = this.successCount + " success / " + this.errorCount + " errors";
+            if (this.timestamp) {
+                infoText += "\n" + this.timestamp.toLocaleTimeString();
             }
             Log.call(Log.l.trace, "mitarbeiterSelect.");
-            for (var i = 0; i < results.length; i++) {
-                infoText += "\n" + "[" + i + "]: " + results[i];
+            for (var i = 0; i < this.results.length; i++) {
+                infoText += "\n" + "[" + i + "]: " + this.results[i];
             }
             Log.ret(Log.l.trace);
             return infoText;

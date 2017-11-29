@@ -93,28 +93,10 @@
     * Instanciate and the work loop object
     */
     var workLoop = new WorkerService.WorkLoop([
-        "selectMitarbeiter01",
-        "selectMitarbeiter02",
-        "selectMitarbeiter03",
-        "selectMitarbeiter04",
-        "selectMitarbeiter05",
-        "selectMitarbeiter06",
-        "selectMitarbeiter07",
-        "selectMitarbeiter08",
-        "selectMitarbeiter09",
-        "selectMitarbeiter10",
+        { name: "selectMitarbeiter", count: 20 },
         "selectVeranstaltung",
-        "selectKontakt01",
-        "selectKontakt01",
-        "selectKontakt03",
-        "selectKontakt04",
-        "selectKontakt05",
-        "selectKontakt06",
-        "selectKontakt07",
-        "selectKontakt08",
-        "selectKontakt09",
-        "selectKontakt10",
-        "callOcr"
+        { name: "selectKontakt", count: 20 }//,
+        //"callOcr"
     ], port);
 
     /*
