@@ -6,6 +6,7 @@
     <Name>NodejsWebApp1</Name>
     <RootNamespace>NodejsWebApp1</RootNamespace>
     <NameOfLastUsedPublishProfile>NodejsWebApp120170629081514 - Web Deploy</NameOfLastUsedPublishProfile>
+    <NodeExePath>C:\Program Files (x86)\nodejs\node.exe</NodeExePath>
   </PropertyGroup>
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -22,7 +23,7 @@
     <ProjectTypeGuids>{3AF33F2E-1136-4D97-BBB7-1795711AC8B8};{349c5851-65df-11da-9384-00065b846f21};{9092AA53-FB77-4645-B42D-1CCCA6BD08BD}</ProjectTypeGuids>
     <ProjectView>ShowAllFiles</ProjectView>
     <NodejsPort>1337</NodejsPort>
-    <StartWebBrowser>true</StartWebBrowser>
+    <StartWebBrowser>True</StartWebBrowser>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -62,6 +63,7 @@
     <Compile Include="worker\selectKontakt\selectKontakt.js" />
     <Compile Include="worker\selectMitarbeiter\selectMitarbeiter.js" />
     <Compile Include="worker\selectVeranstaltung\selectVeranstaltung.js" />
+    <Compile Include="worker\xhrRequest\xhrRequest.js" />
     <Content Include="lib\WinJS\css\ui-dark-intrinsics.css" />
     <Content Include="lib\WinJS\css\ui-dark-intrinsics.min.css" />
     <Content Include="lib\WinJS\css\ui-dark-tv.css" />
@@ -100,6 +102,7 @@
     <Folder Include="worker\selectKontakt\" />
     <Folder Include="worker\selectMitarbeiter\" />
     <Folder Include="worker\selectVeranstaltung\" />
+    <Folder Include="worker\xhrRequest\" />
   </ItemGroup>
   <ItemGroup>
     <TypeScriptCompile Include="typings\globals\node\index.d.ts" />
