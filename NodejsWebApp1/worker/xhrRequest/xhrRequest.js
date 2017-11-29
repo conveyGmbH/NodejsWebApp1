@@ -51,27 +51,23 @@
                         that.successCount++;
                         Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
                         that.timestamp = new Date();
-                        complete(obj);
                     } else {
                         that.errorCount++;
                         Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
                         that.timestamp = new Date();
                         err = { status: 404, statusText: "no data found" };
-                        error(err);
                     }
                 } catch (exception) {
                     that.errorCount++;
                     Log.print(Log.l.error, "resource parse error " + (exception && exception.message) + that.successCount + " success / " + that.errorCount + " errors");
                     that.timestamp = new Date();
                     err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
-                    error(err);
                 }
                 return WinJS.Promise.as();
             }, function (errorResponse) {
                 that.errorCount++;
                 Log.print(Log.l.error, "error status=" + that.errorResponse.status + " statusText=" + that.errorResponse.statusText);
                 that.timestamp = new Date();
-                error(errorResponse);
             });
         },
 
