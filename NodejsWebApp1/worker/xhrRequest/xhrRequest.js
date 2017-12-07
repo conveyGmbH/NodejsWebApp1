@@ -8,8 +8,8 @@
 (function () {
     "use strict";
     var subscriptionKey = "a12ee952460d409f9f66d1536dd97318";
-    var sourceImageUrl = "http://www.fxencore.de/gallery/tuts/steps/stepid_4_tutid_122_userid_3_text_pfad_6.jpg";
-    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr";
+    var sourceImageUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/af/Atomist_quote_from_Democritus.png/338px-Atomist_quote_from_Democritus.png";
+    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr?language=de";
 
     var imageRecord = {
         url: sourceImageUrl
@@ -46,6 +46,7 @@
                 Log.print(Log.l.trace, "success!");
                 try {
                     var obj = response;
+                    console.log(obj);
                     var myresultJson = JSON.parse(response.responseText);
                     if (obj && obj.responseText) {
                         that.successCount++;
@@ -57,6 +58,24 @@
                         that.timestamp = new Date();
                         err = { status: 404, statusText: "no data found" };
                     }
+                    var myResultSet = "";
+                    var dummyResult = "";
+                    if (myresultJson && myresultJson.regions.length > 0) {
+                        for (var i = 0; i < myresultJson.regions.length; i++) {
+                            for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
+                                for (var k = 0; k < myresultJson.regions[i].lines[j].words.length; k++) {
+                                    var myBoundingBox = myresultJson.regions[i].lines[j].words[k].boundingBox;
+                                    var myNewboundingBox = myBoundingBox.split(",");
+                                    myResultSet = myResultSet + "(x = " + myNewboundingBox[0] + ", y = " + myNewboundingBox[1] + ", width = " + myNewboundingBox[2] + ", height = " + myNewboundingBox[3] + ", text = "
+                                        + myresultJson.regions[i].lines[j].words[k].text + "); ";
+                                    var text = (myresultJson.regions[i].lines[j].words[k].text).replace(",", ".");
+                                    dummyResult = myNewboundingBox[0] + ", " + myNewboundingBox[1] + ", " + myNewboundingBox[2] + ", " + text + "\n";
+
+                                }
+                            }
+                        }
+                    }
+                    console.log(dummyResult);
                 } catch (exception) {
                     that.errorCount++;
                     Log.print(Log.l.error, "resource parse error " + (exception && exception.message) + that.successCount + " success / " + that.errorCount + " errors");
