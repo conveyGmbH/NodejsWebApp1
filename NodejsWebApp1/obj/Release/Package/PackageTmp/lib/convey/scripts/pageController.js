@@ -309,6 +309,8 @@
                         this._eventHandlerRemover[i]();
                     }
                     this._eventHandlerRemover = null;
+                    this.binding = null;
+                    this._pageData = null;
                     this._element = null;
                 },
                 _derivedDispose: null,
@@ -522,6 +524,9 @@
                                     AppBar.modified = false;
                                     if (typeof complete === "function") {
                                         complete(response);
+                                        return WinJS.Promise.as();
+                                    } else {
+                                        return that.loadData(recordId);
                                     }
                                 }, function (errorResponse) {
                                     if (typeof error === "function") {
@@ -711,6 +716,13 @@
                     var recordId = null;
                     if (typeof restriction === "number") {
                         recordId = restriction;
+                        if (that.tableView && that.tableView.relationName &&
+                            that.tableView.relationName.substr(0, 4) === "LGNT") {
+                            // recordId is in fact foreign key to INIT-relation in case of LGNTINIT-relation!
+                            restriction = {};
+                            var initkeyId = that.tableView.relationName.substr(4) + "ID";
+                            restriction[initkeyId] = recordId;
+                        }
                         Log.print(Log.l.trace, "calling select... recordId=" + recordId);
                     } else {
                         Log.print(Log.l.trace, "calling select...");
@@ -821,8 +833,9 @@
                             }
                         } else {
                             if (json && json.d && that.records) {
-                                var objectrec = scopeFromRecordId(recordId);
-                                var record = json.d;
+                                // return only the current record
+                                var objectrec = that.scopeFromRecordId(recordId);
+                                var record = json.d.results ? json.d.results[0] : json.d;
                                 if (typeof that.resultConverter === "function") {
                                     that.resultConverter(record, objectrec.index);
                                 }

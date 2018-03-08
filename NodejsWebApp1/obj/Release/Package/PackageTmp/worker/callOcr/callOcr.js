@@ -27,17 +27,27 @@
         activity: function () {
             var ret = null;
             var that = this;
+            var pAktionStatus = "OCR_START" + this.ocrUuid;
             Log.call(Log.l.trace, "callOcr.");
             ret = AppData.call("PRC_STARTCARDOCREX", {
-                pAktionStatus: "OCR_START" + this.ocrUuid
+                pAktionStatus: pAktionStatus
             }, function(json) {
                 that.successCount++;
-                Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
+                Log.print(Log.l.info, "PRC_STARTCARDOCREX success! " + that.successCount + " success / " + that.errorCount + " errors");
                 that.timestamp = new Date();
             }, function (error) {
                 that.errorCount++;
-                Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                Log.print(Log.l.error, "PRC_STARTCARDOCREX error! " + that.successCount + " success / " + that.errorCount + " errors");
                 that.timestamp = new Date();
+            }).then(function () {
+                //return importCardsvanView.select... { Button: pAktionStatus }
+                return WinJS.Promise.as();
+            }).then(function () {
+                //return azure Post...
+                return WinJS.Promise.as();
+            }).then(function () {
+                //return neue insert Tabelle!...
+                return WinJS.Promise.as();
             });
             Log.ret(Log.l.trace);
             return ret;
