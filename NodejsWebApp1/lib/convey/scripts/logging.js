@@ -92,7 +92,12 @@
                     index = caller.indexOf(".js");
                     str = caller.substr(0, index + 3);
                     index = str.lastIndexOf("/");
-                    str = str.substr(index + 1, str.length);
+                    if (index < 0) {
+                        index = str.lastIndexOf("\\");
+                    }
+                    if (index >= 0) {
+                        str = str.substr(index + 1, str.length);
+                    }
 
                     var file = str;
                     if (typeof $ !== "undefined" && $.browser && $.browser.mozilla) {
