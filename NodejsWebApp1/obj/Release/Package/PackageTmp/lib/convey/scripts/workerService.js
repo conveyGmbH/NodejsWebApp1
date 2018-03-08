@@ -92,7 +92,7 @@
         */
         WorkDispatcher: WinJS.Class.define(function workDispatcher(name, instance) {
             Log.call(Log.l.trace, "WorkerService.WorkDispatcher.", "name=" + name);
-            this._promise = WinJS.Promise.as();
+            this._promise = new WinJS.Promise.as();
             this._name = name;
             if (typeof instance === "number") {
                 this._instance = instance;
@@ -110,26 +110,32 @@
             _waitTimeMs: 1000,
             _runLoop: function () {
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
-                if (this.status === WorkerService.statusId.started) {
-                    this._status = WorkerService.statusId.busy;
-                    this._promise = this.activity.call(this._module);
-                    if (!this._promise || typeof this._promise.then !== "function") {
-                        this._promise = this._defaultActivity();
-                    }
-                    var that = this;
-                    this._promise.then(function () {
-                        if (that._nextStatus) {
-                            Log.print(Log.l.info, "now switch to status=" + that._nextStatus);
-                            that._status = that._nextStatus;
-                            that._nextStatus = null;
-                        } else if (that._status === WorkerService.statusId.busy) {
-                            that._status = WorkerService.statusId.started;
-                            that._promise = WinJS.Promise.timeout(that.waitTimeMs).then(function () {
-                                that._runLoop();
-                            });
+                var that = this;
+                this._promise.then(function() {
+                    if (that.status === WorkerService.statusId.started) {
+                        that._status = WorkerService.statusId.busy;
+                        var ret = that.activity();
+                        if (ret && typeof ret.then === "function") {
+                            return ret;
                         }
-                    });
-                }
+                    }
+                    return new WinJS.Promise.as();
+                }).then(function () {
+                    if (that._nextStatus) {
+                        Log.print(Log.l.info, "now switch to status=" + that._nextStatus);
+                        that._status = that._nextStatus;
+                        that._nextStatus = null;
+                        if (that._status === WorkerService.statusId.stopped) {
+                            return that.dispose();
+                        }
+                    } else if (that._status === WorkerService.statusId.busy) {
+                        that._status = WorkerService.statusId.started;
+                        return WinJS.Promise.timeout(that.waitTimeMs).then(function () {
+                            that._runLoop();
+                        });
+                    }
+                    return new WinJS.Promise.as();
+                });
                 Log.ret(Log.l.trace);
             },
 
@@ -173,15 +179,15 @@
                 Log.Print(Log.l.trace, "use WorkerService.WorkLoop._defaultActivity");
                 return new WinJS.Promise.as();
             },
-            activity: {
-                get: function () {
-                    return this._activity || this._defaultActivity;
-                },
-                set: function (newActivity) {
-                    this._activity = newActivity;
+            activity: function() {
+                var ret;
+                if (this._activity && this._module) {
+                    ret = this._activity.call(this._module);
+                } else {
+                    ret = this._defaultActivity;
                 }
+                return ret;
             },
-
             _dispose: null,
             _defaultDispose: function () {
                 Log.Print(Log.l.trace, "use WorkerService.WorkLoop._defaultDispose");
@@ -189,7 +195,7 @@
             },
             dispose: function () {
                 var ret;
-                if (this._dispose) {
+                if (this._dispose && this._module) {
                     ret = this._dispose.call(this._module);
                 } else {
                     ret = this._defaultDispose;
@@ -200,44 +206,40 @@
 
             info: {
                 get: function() {
-                    return this._info && this._info.call(this._module) || "";
+                    return this._info && this._module && this._info.call(this._module) || "";
                 }
             },
 
             start: function () {
-                var curPromise = null;
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
-                if (this.status === WorkerService.statusId.stopped) {
-                    if (!this._module) {
-                        var filename = "../../../worker/" + this.name + "/" + this.name + ".js";
-                        this._module = new WorkerService.DispatcherModule(filename);
-                        if (typeof this._module.info === "function") {
-                            this._info = this._module.info;
+                var that = this;
+                this._promise.then(function() {
+                    if (that.status === WorkerService.statusId.stopped) {
+                        var filename = "../../../worker/" + that.name + "/" + that.name + ".js";
+                        that._module = new WorkerService.DispatcherModule(filename);
+                        if (typeof that._module.info === "function") {
+                            that._info = that._module.info;
                         }
-                    }
-                    this._status = WorkerService.statusId.started;
-                    if (typeof this._module.startup === "function") {
-                        curPromise = this._module.startup.call(this._module);
-                    }
-                    if (!curPromise) {
-                        curPromise = WinJS.Promise.as();
-                    }
-                } else if (this._status !== WorkerService.statusId.started) {
-                    this._status = WorkerService.statusId.started;
-                    curPromise = WinJS.Promise.as();
-                }
-                if (this._module && curPromise) {
-                    var that = this;
-                    curPromise.then(function () {
                         if (typeof that._module.activity === "function") {
-                            that.activity = that._module.activity;
+                            that._activity = that._module.activity;
                         }
                         if (typeof that._module.dispose === "function") {
                             that._dispose = that._module.dispose;
                         }
+                        if (typeof that._module.startup === "function") {
+                            var ret = that._module.startup.call(that._module);
+                            if (ret && typeof ret.then === "function") {
+                                return ret;
+                            }
+                        }
+                    }
+                    return new WinJS.Promise.as();
+                }).then(function () {
+                    if (that._status !== WorkerService.statusId.started) {
+                        that._status = WorkerService.statusId.started;
                         that._runLoop();
-                    });
-                }
+                    }
+                });
                 Log.ret(Log.l.trace);
             },
 
@@ -250,10 +252,6 @@
             stop: function () {
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
                 this._nextStatus = WorkerService.statusId.stopped;
-                if (this._promise) {
-                    this._promise.cancel();
-                }
-                this.dispose();
                 Log.ret(Log.l.trace);
             }
         }),
@@ -296,7 +294,7 @@
                     }
                 }
             }
-            this._promise = WinJS.Promise.as();
+            this._promise = new WinJS.Promise.as();
             this._listening = false;
             this._port = port;
             if (port) {
@@ -377,6 +375,7 @@
             },
 
             _requestHandler: function (req, res) {
+                var i;
                 var bodyText = "";
                 Log.call(Log.l.info, "WorkerService.WorkLoop.", "request received: url=" + req.url);
                 res.writeHead(200, { "Content-Type": "text/plain" });
@@ -396,9 +395,9 @@
                         bodyText += "param: " + param + "\n";
                     }
                     // check for dispatcher by name or main loop
-                    var object;
+                    var objects = [];
                     if (param) {
-                        var commaPos = param.indexOf(",");
+                        var commaPos = param.indexOf("/");
                         var name;
                         var instance;
                         if (commaPos > 0) {
@@ -407,13 +406,15 @@
                         } else {
                             name = param;
                         }
-                        object = this.getDispatcherByName(param, instance);
+                        objects = this.getDispatchersByName(name, instance);
                     } else {
-                        object = this;
+                        objects[0] = this;
                     }
                     // do known command
-                    if (object) {
-                        switch (command) {
+                    if (objects.length > 0) {
+                        for (i = 0; i < objects.length; i++) {
+                            var object = objects[i];
+                            switch (command) {
                             case "start":
                                 object.start();
                                 break;
@@ -425,6 +426,7 @@
                                 break;
                             default:
                                 bodyText += "\n" + WorkerService.description;
+                            }
                         }
                     } else {
                         bodyText += "\n" + WorkerService.description;
@@ -432,7 +434,7 @@
                 }
 
                 bodyText += "\nService status:\n(" + this.status + ")\n\nDispatcher status:";
-                for (var i = 0; i < this.dispatcherCount; i++) {
+                for (i = 0; i < this.dispatcherCount; i++) {
                     var curDispatcher = this.getDispatcher(i);
                     var curInstance = curDispatcher.instance;
                     bodyText += "\n---------- [" + i + "] " + curDispatcher.name;
@@ -483,22 +485,23 @@
             },
 
             /**
-            * @function getDispatcherByName
+            * @function getDispatchersByName
             * @param {number} index - The index of the dispatcher object in the dispatcher list of the WorkLoop object
             * @returns {WorkerService.WorkDispatcher} The dispatcher object a given index.
             * @memberof WorkerService.WorkLoop
             * @description Call this function to retrieve a dispatcher object a given index.
             */
-            getDispatcherByName: function (name, instance) {
+            getDispatchersByName: function (name, instance) {
+                var ret = [];
                 if (this._dispatcher) {
                     for (var i = 0; i < this._dispatcher.length; i++) {
                         if (this._dispatcher[i] && this._dispatcher[i].name === name &&
                             (typeof instance === "undefined" || this._dispatcher[i].instance === instance)) {
-                            return this._dispatcher[i];
+                            ret.push(this._dispatcher[i]);
                         }
                     }
                 }
-                return null;
+                return ret;
             },
 
             /**
