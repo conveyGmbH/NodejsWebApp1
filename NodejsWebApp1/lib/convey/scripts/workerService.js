@@ -179,7 +179,7 @@
                             this._waitTimeMs = this._module.waitTimeMs;
                         }
                         if (typeof this._module.info === "function") {
-                            this._info = this._module.info;
+                            this._info = this._module.info.bind(this._module);
                         }
                     }
                     this._status = WorkerService.statusId.started;
@@ -197,10 +197,10 @@
                     var that = this;
                     curPromise.then(function () {
                         if (typeof that._module.activity === "function") {
-                            that.activity = that._module.activity;
+                            that.activity = that._module.activity.bind(that._module);
                         }
                         if (typeof that._module.dispose === "function") {
-                            that.dispose = that._module.dispose;
+                            that.dispose = that._module.dispose.bind(that._module);
                         }
                         that._runLoop();
                     });
