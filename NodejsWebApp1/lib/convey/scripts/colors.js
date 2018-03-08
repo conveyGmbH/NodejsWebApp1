@@ -79,7 +79,7 @@
          *  So, you need to define a default CSS rule for the given selector and attribute e.g. in a style definition file before calling this function.
          */
         changeCSS: function (selector, attribute, value) {
-            Log.call(Log.l.trace, "Colors.", "selector=" + selector + " attribute=" + attribute + " value=" + value);
+            Log.call(Log.l.u1, "Colors.", "selector=" + selector + " attribute=" + attribute + " value=" + value);
             var cssRules;
             var strValue;
             if (!value) {
@@ -116,7 +116,7 @@
                                         prevValue.substr(0, 1) === "#" &&
                                         Colors.rgbStr2hex(strValue) === prevValue ||
                                         prevValue === strValue) {
-                                        Log.print(Log.l.trace, "extra ignored: " + selector + " { " + attribute + ": " + prevValue + " == " + strValue + " }");
+                                        Log.print(Log.l.u1, "extra ignored: " + selector + " { " + attribute + ": " + prevValue + " == " + strValue + " }");
                                     } else {
                                         rule.style[attribute] = strValue;
                                         var newValue = rule.style[attribute];
@@ -151,7 +151,7 @@
                     Log.print(Log.l.error, "exception occured");
                 }
             }
-            Log.ret(Log.l.trace);
+            Log.ret(Log.l.u1);
         },
         cutHex: function(h) {
             return (h && h.charAt(0) === "#") ? h.substring(1, 7) : h;
@@ -219,9 +219,22 @@
            </pre> 
          * @description Use this function to convert color values from r, g, b number values into h, s, v number values.
          */
-        rgb2hsv: function (r, g, b) {
+        rgb2hsv: function (obj, g, b) {
+            var r = null;
+            if (typeof obj === "number") {
+                r = obj;
+            } else if (obj &&
+                typeof obj === "object" &&
+                typeof obj.r === "number" &&
+                typeof obj.g === "number" &&
+                typeof obj.b === "number") {
+                r = obj.r;
+                g = obj.g;
+                b = obj.b;
+            }
             Log.call(Log.l.u2, "Colors.", "r=" + r + " g=" + g + " b=" + b);
             if (r < 0 || g < 0 || b < 0 || r > 255 || g > 255 || b > 255) {
+                Log.ret(Log.l.u2, "invalid params");
                 return null;
             }
             r = r / 255.0;
@@ -232,6 +245,7 @@
 
             // Black-gray-white
             if (minRgb === maxRgb) {
+                Log.ret(Log.l.u2, "h=" + 0 + " s=" + 0 + " v=" + minRgb * 100);
                 return { h: 0, s: 0, v: minRgb * 100 };
             }
 
@@ -261,7 +275,19 @@
          * @description Use this function to convert color values from h, s, v number values into r, g, b number values.
          *  For further informtions see the algorithm by Eugene Vishnevsky at {@link http://www.cs.rit.edu/~ncs/color/t_convert.html HSV to RGB color conversion}
          */
-        hsv2rgb: function (h, s, v) {
+        hsv2rgb: function (obj, s, v) {
+            var h = null;
+            if (typeof obj === "number") {
+                h = obj;
+            } else if (obj &&
+                typeof obj === "object" &&
+                typeof obj.h === "number" &&
+                typeof obj.s === "number" &&
+                typeof obj.v === "number") {
+                h = obj.h;
+                s = obj.s;
+                v = obj.v;
+            }
             Log.call(Log.l.u2, "Colors.", "h=" + h + " s=" + s + " v=" + v);
             var r, g, b, i, f, p, q, t;
 
@@ -280,6 +306,7 @@
             if (s === 0) {
                 // Achromatic (grey)
                 r = g = b = v;
+                Log.ret(Log.l.u2, "r=" + Math.round(r * 255) + " g=" + Math.round(g * 255) + " b=" + Math.round(b * 255));
                 return { r: Math.round(r * 255), g: Math.round(g * 255), b: Math.round(b * 255) };
             }
 
@@ -338,8 +365,24 @@
          * @returns {string} A color value hexadecimal string in the format: "#rrggbb"
          * @description Use this function to convert color values from format to r, g, b number values into a hex string.
          */
-        rgb2hex: function (r, g, b) {
+        rgb2hex: function (obj, g, b) {
+            var r = null;
+            if (typeof obj === "number") {
+                r = obj;
+            } else if (obj &&
+                typeof obj === "object" &&
+                typeof obj.r === "number" &&
+                typeof obj.g === "number" &&
+                typeof obj.b === "number") {
+                r = obj.r;
+                g = obj.g;
+                b = obj.b;
+            }
             Log.call(Log.l.u2, "Colors.", "r=" + r + " g=" + g + " b=" + b);
+            if (typeof r === "undefined" || r === null) {
+                Log.ret(Log.l.u2, "invalid params");
+                return "";
+            }
             var rgb = [r.toString(16), g.toString(16), b.toString(16)];
             for (var i = 0; i < 3; i++) {
                 if (rgb[i].length === 1) rgb[i] = "0" + rgb[i];
@@ -394,7 +437,8 @@
 
                 // color of static text labels
                 if (typeof colorSettings.labelColor != "undefined" &&
-                    colorSettings.labelColor) {
+                    colorSettings.labelColor &&
+                    Colors._prevIsDarkTheme === Colors.isDarkTheme && !Colors.isDarkTheme) {
                     this._labelColor = colorSettings.labelColor;
                 } else {
                     var labelColorRgb = Colors.hsv2rgb(
@@ -420,7 +464,7 @@
                 Colors._colorsClass = this;
 
                 // apply changes in visual style
-                if (Colors._prevIsDarkTheme === Colors.isDarkTheme) {
+                if (Colors._prevIsDarkTheme !== null && Colors._prevIsDarkTheme === Colors.isDarkTheme) {
                     Log.print(Log.l.trace, "isDarkTheme=" + Colors.isDarkTheme + " not changed");
                 } else {
                     if (Colors.isDarkTheme) {
@@ -440,14 +484,16 @@
                     Colors.changeCSS(".masterhost-container .pagecontrol", "background-color", Colors.isDarkTheme ? "rgba(250,250,250,0.1)" : "rgba(32,32,32,0.1)");
                     Colors.changeCSS(".list-container", "background-color", Colors.isDarkTheme ? "rgba(250,250,250,0.1)" : "rgba(32,32,32,0.1)");
                     Colors.changeCSS(".navigationbar-container", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
-                    Colors.changeCSS(".titlearea", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
-                    Colors.changeCSS(".status-on-off", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
+                    Colors.changeCSS(".titlearea-bkg", "background-color", Colors.isDarkTheme ? "#101010" : "#f8f8f8");
                     Colors.changeCSS(".field_line", "border-top-color", Colors.isDarkTheme ? "#202020" : "#f8f8f8");
                     Colors.changeCSS(".row-separator", "border-top-color", Colors.isDarkTheme ? "#202020" : "#f8f8f8");
                     Colors.changeCSS(".window-color", "color", Colors.isDarkTheme ? "#ffffff" : "#000000");
                     Colors.changeCSS(".window-color", "background-color", Colors.isDarkTheme ? "#000000" : "#ffffff");
                     Colors.changeCSS(".win-selected .window-color", "color", Colors.isDarkTheme ? "#000000" : "#ffffff");
                     Colors.changeCSS(".win-selected .window-color", "background-color", Colors.isDarkTheme ? "#ffffff" : "#000000");
+                    Colors.changeCSS(".box-bkg", "background-color", Colors.isDarkTheme ? "#2b2b2b" : "#f2f2f2");
+                    Colors.changeCSS(".shape:hover", "background-color", Colors.isDarkTheme ? "rgba(255, 255, 255, 0.2)" : "rgba(0, 0, 0, 0.2)");
+                    Colors.changeCSS(".shape:active", "background-color", Colors.isDarkTheme ? "rgba(255, 255, 255, 0.4)" : "rgba(0, 0, 0, 0.4)");
                 });
                 if (Colors._prevAccentColor === this._accentColor &&
                     Colors._prevIsDarkTheme === Colors.isDarkTheme &&
@@ -487,7 +533,8 @@
 
                 // color of page text
                 if (typeof colorSettings.textColor != "undefined" &&
-                    colorSettings.textColor) {
+                    colorSettings.textColor &&
+                    Colors._prevIsDarkTheme === Colors.isDarkTheme && !Colors.isDarkTheme) {
                     this._textColor = colorSettings.textColor;
                 } else {
                     var textColorRgb = Colors.hsv2rgb(
@@ -500,7 +547,8 @@
 
                 // color of page background
                 if (typeof colorSettings.backgroundColor != "undefined" &&
-                    colorSettings.backgroundColor) {
+                    colorSettings.backgroundColor &&
+                    Colors._prevIsDarkTheme === Colors.isDarkTheme && !Colors.isDarkTheme) {
                     this._backgroundColor = colorSettings.backgroundColor;
                 } else {
                     var backgroundColorRgb = Colors.hsv2rgb(
@@ -517,7 +565,8 @@
                 } else {
                     document.body.style.backgroundColor = this._backgroundColor;
                     WinJS.Promise.timeout(500).then(function () {
-                        Colors.changeCSS(".row-bkg", "background-color", Colors.backgroundColor);
+                        Colors.changeCSS(".row-bkg", "background-color",
+                            AppData._persistentStates.showAppBkg ? "transparent" : Colors.backgroundColor);
                     });
                 }
                 if (typeof colorSettings.tileTextColor != "undefined" &&
@@ -534,12 +583,12 @@
                     Colors._prevShowAppBkg === AppData._persistentStates.showAppBkg &&
                     !forceColors) {
                     Log.print(Log.l.trace, "showAppBkg=" + AppData._persistentStates.showAppBkg + " not changed");
-                /*} else {
+                } else {
                     // show background image
                     var appBkg = document.querySelector(".app-bkg");
                     if (appBkg && appBkg.style) {
                         appBkg.style.visibility = AppData._persistentStates.showAppBkg ? "visible" : "hidden";
-                        if (_persistentStates.showAppBkg && this._tileBackgroundColor &&
+                        if (AppData._persistentStates.showAppBkg && this._tileBackgroundColor &&
                             this._tileBackgroundColor.substr(0,1) === "#") {
                             var rgbAppBkg = Colors.hex2rgb(this._tileBackgroundColor);
                             var opacity;
@@ -550,7 +599,7 @@
                             }
                             this._tileBackgroundColor = "rgba(" + rgbAppBkg.r + "," + rgbAppBkg.g + "," + rgbAppBkg.b + "," + opacity + ")";
                         }
-                    }*/
+                    }
                 }
                 if (Colors._prevTextColor === this._textColor &&
                     Colors._prevIsDarkTheme === Colors.isDarkTheme &&
@@ -573,7 +622,7 @@
                     Log.print(Log.l.trace, "labelColor=" + this._labelColor + " not changed");
                 } else {
                     WinJS.Promise.timeout(500).then(function () {
-                        Colors.changeCSS(".titlearea", "color", Colors.labelColor);
+                        Colors.changeCSS(".titlearea-bkg", "color", Colors.labelColor);
                         Colors.changeCSS(".user-name-container", "color", Colors.labelColor);
                         Colors.changeCSS(".label", "color", Colors.labelColor);
                         Colors.changeCSS(".id-label", "color", Colors.labelColor);
@@ -581,11 +630,13 @@
 
                     });
                 }
-                if (Colors._prevInputBorder !== AppData._persistentStates.inputBorder ||
-                    Colors._prevIsDarkTheme !== Colors.isDarkTheme ||
-                    forceColors) {
+                if (Colors._prevInputBorder === AppData._persistentStates.inputBorder &&
+                    Colors._prevIsDarkTheme === Colors.isDarkTheme &&
+                    !forceColors) {
+                    Log.print(Log.l.trace, "inputBorder=" + AppData._persistentStates.inputBorder + " not changed");
+                } else {
                     WinJS.Promise.timeout(500).then(function () {
-                    Colors.changeCSS("select.input_field, select.large_field, select.input_small_left, select.input_small_right, input.input_field, input.large_field, input.input_small_left, input.input_small_right",
+                        Colors.changeCSS("input.win-textbox, input.win-checkbox, input.win-radio, textarea.win-textarea, select.win-dropdown",
                             "border-width", AppData._persistentStates.inputBorder + "px");
                     });
                 }
@@ -725,9 +776,10 @@
                 if (typeof Colors._cachedSVGText[svgInfo.fileName] === "undefined") {
                     // load SVG images from file
                     var url = "images/" + svgInfo.fileName + ".svg";
-                    Log.print(Log.l.u1, "trying to load image from " + url);
+                    Log.print(Log.l.u1, "load image from " + url);
                     try {
-                        ret = WinJS.xhr({ url: url }).then(function (res) {
+                        ret = WinJS.xhr({ url: url }).then(function xhrSuccess(res) {
+                            Log.call(Log.l.u1, "Colors.", "fileName=" + svgInfo.fileName);
                             var responseText = res.responseText;
                             var svgText = null;
                             Log.print(Log.l.u1, "image ok!");
@@ -739,13 +791,26 @@
                                     }
                                     if (pos >= 0) {
                                         svgText = responseText.substr(pos);
+                                        pos = responseText.indexOf("/svg>");
+                                        if (pos < 0) {
+                                            pos = responseText.indexOf("/SVG>");
+                                        }
+                                        if (pos >= 0) {
+                                            svgText = svgText.substr(0,pos+5);
+                                        }
+                                    }
+                                    //svgText = responseText.search(/\<svg.*\/svg\>/i);
+                                    if (svgText) {
+                                        svgText = svgText.replace(/\<title.*\/title\>/i, "");
+                                        svgText = svgText.replace(/\<desc.*\/desc\>/i, "");
                                     }
                                 }
                                 // save SVG text in cache
                                 Colors._cachedSVGText[svgInfo.fileName] = svgText;
+                                Log.ret(Log.l.u1);
                                 return Colors.loadSVGImage(svgInfo);
                             } catch (exception) {
-                                Log.print(Log.l.error, "image parse error " + exception.message);
+                                Log.ret(Log.l.error, "image parse exception " + exception.message);
                                 return WinJS.Promise.as();
                             }
                         }, function (err) {
@@ -856,7 +921,7 @@
                     for (var i = 0; i < newElementList.length; i++) {
                         var id;
                         var element = newElementList[i];
-                        if (typeof attribute !== "undefined") {
+                        if (typeof attribute === "string") {
                             id = element[attribute];
                         } else {
                             id = element.id;
@@ -907,7 +972,8 @@
             get: function() { return Colors._colorsClass && Colors._colorsClass._accentColor; },
             set: function(color) {
                 Log.call(Log.l.trace, "Colors.accentColor.", "color=" + color);
-                if (Colors._colorsClass) {
+                if (Colors._colorsClass &&
+                    Colors._prevAccentColor !== color) {
                     Colors._colorsClass._accentColor = color;
                     Colors._colorsClass._labelColor = null;
                     Colors._colorsClass._backgroundColor = null;
@@ -1038,7 +1104,7 @@
                 if (Colors._prevIsDarkTheme === isDarkTheme) {
                     // extra ignored
                 } else {
-                    Colors.accentColor = Colors.accentColor;
+                    Colors.updateColors();
                 }
                 Log.ret(Log.l.trace);
             }
@@ -1056,7 +1122,7 @@
                 if (Colors._prevInputBorder === inputBorder) {
                     // extra ignored
                 } else {
-                    Colors.accentColor = Colors.accentColor;
+                    Colors.updateColors();
                 }
                 Log.ret(Log.l.trace);
             }
@@ -1089,15 +1155,16 @@
                     navigationColor: Colors._colorsClass._navigationColor
                 });
                 Colors.customColorsSet = false;
-                AppData._persistentStates.colorSettings = {
-                    accentColor: Colors.accentColor,
-                    textColor: Colors.textColor,
-                    backgroundColor: Colors.backgroundColor,
-                    tileTextColor: Colors.tileTextColor,
-                    tileBackgroundColor: Colors.tileBackgroundColor,
-                    labelColor: Colors.labelColor,
-                    navigationColor: Colors.navigationColor
+                if (!AppData._persistentStates.colorSettings) {
+                    AppData._persistentStates.colorSettings = {};
                 }
+                AppData._persistentStates.accentColor = Colors.accentColor;
+                AppData._persistentStates.textColor = Colors.textColor;
+                AppData._persistentStates.backgroundColor = Colors.backgroundColor;
+                AppData._persistentStates.tileTextColor = Colors.tileTextColor;
+                AppData._persistentStates.tileBackgroundColor = Colors.tileBackgroundColor;
+                AppData._persistentStates.labelColor = Colors.labelColor;
+                AppData._persistentStates.navigationColor = Colors.navigationColor;
                 Application.pageframe.savePersistentStates();
             } else {
                 ret = null;

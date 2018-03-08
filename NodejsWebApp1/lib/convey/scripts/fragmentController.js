@@ -23,9 +23,23 @@
             object.dispose = function() {
                 Log.call(Log.l.trace, "Fragments.FragmentControl.", "path=" + this._path);
                 if (this._disposed) {
+                    Log.ret(Log.l.trace, "extra irgnored!");
                     return;
                 }
                 this._disposed = true;
+                var controllerElement = this._element;
+                while (controllerElement &&
+                    controllerElement.className.indexOf("data-container") < 0) {
+                    controllerElement = controllerElement.firstElementChild || controllerElement.firstChild;
+                }
+                if (controllerElement && controllerElement.className.indexOf("win-disposable") >= 0) {
+                    WinJS.Utilities.removeClass(controllerElement, "win-disposable");
+                    if (controllerElement.winControl && controllerElement.winControl.dispose) {
+                        controllerElement.winControl.dispose();
+                    }
+                }
+                WinJS.Utilities.disposeSubTree(this._element);
+                this._element = null;
                 Log.ret(Log.l.trace);
             },
             object.FragmentControl = WinJS.Class.define(function FragmentControl(element) {
@@ -44,10 +58,10 @@
          * @description This class implements the base class for fragment controller
          */
         Controller: WinJS.Class.define(function Controller(element, addPageData, commandList) {
-            Log.call(Log.l.trace, "Fragments.Controller.", "path=" + this._path);
+            Log.call(Log.l.trace, "Fragments.Controller.");
             var controllerElement = element;
             while (controllerElement &&
-                    controllerElement.className !== "data-container") {
+                    controllerElement.className.indexOf("data-container") < 0) {
                 controllerElement = controllerElement.firstElementChild || controllerElement.firstChild;
             }
             if (controllerElement) {
@@ -161,17 +175,24 @@
             },
             _disposed: false,
             _dispose: function () {
+                Log.call(Log.l.trace, "Fragments.Controller.");
                 if (this._disposed) {
+                    Log.ret(Log.l.trace, "extra ignored!");
                     return;
                 }
                 this._disposed = true;
-                for (var i = 0; i < this._eventHandlerRemover.length; i++) {
-                    this._eventHandlerRemover[i]();
+                if (this._derivedDispose) {
+                    this._derivedDispose();
                 }
-                this._eventHandlerRemover = null;
-                this.binding = null;
-                this._pageData = null;
+                if (this._eventHandlerRemover) {
+                    for (var i = 0; i < this._eventHandlerRemover.length; i++) {
+                        this._eventHandlerRemover[i]();
+                    }
+                    this._eventHandlerRemover = null;
+                }
+                this.binding = WinJS.Binding.unwrap(this.binding);
                 this._element = null;
+                Log.ret(Log.l.trace);
             },
             _derivedDispose: null,
             /**
@@ -185,9 +206,6 @@
              */
             dispose: {
                 get: function () {
-                    if (this._derivedDispose) {
-                        this._derivedDispose();
-                    }
                     return this._dispose;
                 },
                 set: function (newDispose) {
@@ -213,6 +231,12 @@
             commandList: {
                 get: function() {
                     return this._commandList;
+                },
+                set: function (newCommandList) {
+                    if (newCommandList !== this._commandList) {
+                        this._commandList = newCommandList;
+                        this.updateCommands();
+                    }
                 }
             }
         })

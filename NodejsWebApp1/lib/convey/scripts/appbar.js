@@ -14,7 +14,7 @@
     "use strict";
 
     WinJS.Namespace.define("AppBar", {
-        outputCommand: WinJS.UI.eventHandler(function(ev) {
+        outputCommand: WinJS.UI.eventHandler(function outputCommand(ev) {
             Log.call(Log.l.trace, "AppBar.");
             var commandId = null;
             var command = ev.currentTarget;
@@ -357,21 +357,63 @@
          */
         triggerDisableHandlers: function () {
             Log.call(Log.l.u1, "AppBar.");
-            if (AppBar._commandList && AppBar._disableHandlers) {
+            if (AppBar._commandList) {
                 for (var j = 0; j < AppBar._commandList.length; j++) {
-                    var disableHandler = null;
-                    if (AppBar._disableCommandIds) {
-                        for (var k = 0; k < AppBar._disableCommandIds.length; k++) {
-                            if (AppBar._disableCommandIds[k] === AppBar._commandList[j].id) {
-                                Log.print(Log.l.u1, "disableHandler for commandId=", AppBar._commandList[j].id);
-                                disableHandler = AppBar._disableHandlers[k];
-                                break;
+                    if (AppBar._commandList[j] && AppBar._commandList[j].id) {
+                        var disableHandler = null;
+                        if (AppBar._disableCommandIds && AppBar._disableHandlers) {
+                            for (var k = 0; k < AppBar._disableCommandIds.length && k < AppBar._disableHandlers.length; k++) {
+                                if (AppBar._disableCommandIds[k] === AppBar._commandList[j].id) {
+                                    disableHandler = AppBar._disableHandlers[k];
+                                    break;
+                                }
                             }
                         }
+                        if (typeof disableHandler === "function") {
+                            AppBar.disableCommand(AppBar._commandList[j].id, disableHandler());
+                        }
                     }
-                    if (typeof disableHandler === "function") {
-                        Log.print(Log.l.u1, "call disableHandler of commandId=", AppBar._commandList[j].id);
-                        AppBar.disableCommand(AppBar._commandList[j].id, disableHandler());
+                }
+            }
+            Log.ret(Log.l.u1);
+        },
+        checkDefaultButtonPos: function () {
+            var i;
+            Log.call(Log.l.u1, "AppBar.");
+            // place enter key command as most right primary
+            if (AppBar._commandList && AppBar.barElement) {
+                var idxKeyEnter = -1;
+                for (i = 0; i < AppBar._commandList.length; i++) {
+                    if (AppBar._commandList[i].section === "primary") {
+                        if (idxKeyEnter < 0 && AppBar._commandList[i].key === WinJS.Utilities.Key.enter) {
+                            idxKeyEnter = i;
+                            break;
+                        }
+                    }
+                }
+                var idxPrimary = -1;
+                if (idxKeyEnter >= 0) {
+                    var winCommands = AppBar.barElement.querySelectorAll(".win-command");
+                    var width = 30; // always add ... extra space
+                    for (i = 0; i < AppBar._commandList.length && i < winCommands.length; i++) {
+                        if (AppBar._commandList[i].section === "primary") {
+                            var widthCommand = winCommands[i].clientWidth;
+                            if (!widthCommand || width + widthCommand > document.body.clientWidth) {
+                                break;
+                            }
+                            width += widthCommand;
+                            idxPrimary = i;
+                        }
+                    }
+                    if (idxPrimary >= 0 && idxPrimary !== idxKeyEnter) {
+                        var enterCommand = AppBar._commandList.slice(idxKeyEnter)[0];
+                        var prevCommand = AppBar._commandList.splice(idxPrimary, 1, enterCommand)[0];
+                        AppBar._commandList.splice(idxKeyEnter, 1, prevCommand);
+                        if (AppBar.barControl.data) {
+                            enterCommand = AppBar.barControl.data.slice(idxKeyEnter)[0];
+                            prevCommand = AppBar.barControl.data.splice(idxPrimary, 1, enterCommand)[0];
+                            AppBar.barControl.data.splice(idxKeyEnter, 1, prevCommand);
+                        }
                     }
                 }
             }
@@ -467,39 +509,6 @@
                             AppBar._commandList.push(newCommandList[j]);
                         }
                     }
-                    // place enter key command as most right primary
-                    var idxKeyEnter = -1;
-                    for (i = 0; i < AppBar._commandList.length; i++) {
-                        if (AppBar._commandList[i].section === "primary") {
-                            if (idxKeyEnter < 0 && AppBar._commandList[i].key === WinJS.Utilities.Key.enter) {
-                                idxKeyEnter = i;
-                                break;
-                            }
-                        }
-                    }
-                    var idxPrimary = -1;
-                    if (idxKeyEnter >= 0) {
-                        var width = AppBar._appBar._heightOfCompact + 6; // always add ... extra space
-                        for (i = 0; i < AppBar._commandList.length; i++) {
-                            if (AppBar._commandList[i].section === "primary") {
-                                width += AppBar._appBar._heightOfCompact + 20;
-                                idxPrimary = i;
-                            }
-                            if (width > document.body.clientWidth) {
-                                break;
-                            }
-                        }
-                        if (idxPrimary >= 0 && idxPrimary !== idxKeyEnter) {
-                            var enterCommand = AppBar._commandList.slice(idxKeyEnter)[0];
-                            var prevCommand = AppBar._commandList.splice(idxPrimary, 1, enterCommand)[0];
-                            AppBar._commandList.splice(idxKeyEnter, 1, prevCommand);
-                            if (AppBar.barControl.data) {
-                                enterCommand = AppBar.barControl.data.slice(idxKeyEnter)[0];
-                                prevCommand = AppBar.barControl.data.splice(idxPrimary, 1, enterCommand)[0];
-                                AppBar.barControl.data.splice(idxKeyEnter, 1, prevCommand);
-                            }
-                        }
-                    }
                 }
                 AppBar.loadIcons();
                 WinJS.Promise.timeout(50).then(function () {
@@ -544,35 +553,6 @@
                                 newCommandList[i].section = "secondary";
                                 break;
                             }
-                        }
-                    }
-
-                    // place enter key command as most right primary
-                    var idxKeyEnter = -1;
-                    for (i = 0; i < newCommandList.length; i++) {
-                        if (newCommandList[i].section === "primary") {
-                            if (idxKeyEnter < 0 && newCommandList[i].key === WinJS.Utilities.Key.enter) {
-                                idxKeyEnter = i;
-                                break;
-                            }
-                        }
-                    }
-                    var idxPrimary = -1;
-                    if (idxKeyEnter >= 0) {
-                        var width = AppBar._appBar._heightOfCompact + 6; // always add ... extra space
-                        for (i = 0; i < newCommandList.length; i++){
-                            if (newCommandList[i].section === "primary") {
-                                width += AppBar._appBar._heightOfCompact + 20;
-                                idxPrimary = i;
-                            }
-                            if (width > document.body.clientWidth) {
-                                break;
-                            }
-                        }
-                        if (idxPrimary >= 0 && idxPrimary !== idxKeyEnter) {
-                            var enterCommand = newCommandList.slice(idxKeyEnter)[0];
-                            var prevCommand = newCommandList.splice(idxPrimary, 1, enterCommand)[0];
-                            newCommandList.splice(idxKeyEnter, 1, prevCommand);
                         }
                     }
                     // enable/disable AppBar
@@ -636,7 +616,8 @@
                 AppBar._disableHandlers = null;
                 AppBar._disableCommandIds = null;
                 AppBar.loadIcons();
-                WinJS.Promise.timeout(0).then(function () {
+                WinJS.Promise.timeout(50).then(function () {
+                    AppBar.triggerDisableHandlers();
                     if (Application.navigator) {
                         Application.navigator._resized();
                     }

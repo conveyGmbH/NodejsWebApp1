@@ -45,15 +45,15 @@
             accentColor: "#ff3c00"
         },
         showAppBkg: false,
-        logEnabled: false,
+        logEnabled: true,
         logLevel: 3,
         logGroup: false,
         logNoStack: true,
         inputBorder: 1,
         odata: {
-            https: true,
-            hostName: "leadsuccess.convey.de",
-            onlinePort: 8090,
+            https: false,
+            hostName: "deimos.convey.de",
+            onlinePort: 8080,
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
             login: "gilbert@convey.de",
@@ -96,8 +96,8 @@
         //{ name: "selectMitarbeiter", count: 10 },
         //"selectVeranstaltung",
         //{ name: "selectKontakt", count: 10 },
-        //"callOcr"
-        "xhrRequest"
+        "callOcr"
+        //"xhrRequest"
     ], port);
 
     /*

@@ -14,8 +14,8 @@
         DocGroup: {
             Image: 1,
             Text: 3,
-            Audio: 5,
-            Video: 6
+            Video: 5,
+            Audio: 6
         },
         isSvg: function(docGroup, docFormat) {
             if (docGroup === AppData.DocGroup.Text && docFormat === 75) {
@@ -38,22 +38,134 @@
                 return false;
             }
         },
-        getDocType: function(format) {
-            var formats = {
-                1: "image/bmp",
-                2: "image/tiff",
-                3: "image/jpeg",
-                4: "image/pcx",
-                5: "image/gif",
-                6: "image/eps",
-                13: "video/avi",
-                14: "audio/wav",
-                53: "image/png",
-                67: "audio/mpeg",
-                68: "video/mpeg"
+        isVideo: function (docGroup, docFormat) {
+            if (docGroup === AppData.DocGroup.Video) {
+                return true;
+            } else {
+                return false;
             }
-            var ret = null;
-            return ret;
+        },
+        _docFormat: {
+            "bmp": 1,
+            "tif": 2,
+            "tiff": 2,
+            "jpg": 3,
+            "jpeg": 3,
+            "pcx": 4,
+            "gif": 5,
+            "eps": 6,
+            "ps": 7,
+            "dcx": 10,
+            "avi": 13,
+            "wav": 14,
+            "pcd": 15,
+            "wmf": 16,
+            "cdr": 17,
+            "plt": 18,
+            "dxf": 21,
+            "dwg": 22,
+            "hgl": 23,
+            "hpgl": 23,
+            "cgm": 24,
+            "ctm": 25,
+            "ch3": 26,
+            "cgt": 27,
+            "clp": 28,
+            "clx": 29,
+            "rtf": 30,
+            "htm": 31,
+            "html": 31,
+            "wri": 32,
+            "drw": 33,
+            "dsf": 34,
+            "dwf": 35,
+            "flw": 36,
+            "fmv": 37,
+            "fpx": 38,
+            "gal": 39,
+            "gdf": 40,
+            "gem": 41,
+            "hgw": 42,
+            "ico": 43,
+            "igs": 44,
+            "img": 45,
+            "met": 46,
+            "mnp": 47,
+            "nap": 48,
+            "pct": 49,
+            "pdf": 50,
+            "pic": 51,
+            "pif": 52,
+            "png": 53,
+            "ppt": 54,
+            "psd": 55,
+            "ras": 56,
+            "rnd": 57,
+            "sat": 58,
+            "shw": 59,
+            "mid": 60,
+            "midi": 60,
+            "tga": 61,
+            "vsd": 62,
+            "wpg": 63,
+            "xbm": 64,
+            "xpm": 65,
+            "xwd": 66,
+            "mp3": 67,
+            "mpa": 67,
+            "m2a": 67,
+            "m3a": 67,
+            "m4a": 67,
+            "3g2": 67,
+            "3gp": 67,
+            "3ggp": 67,
+            "3gpp": 67,
+            "mov": 68,
+            "au": 69,
+            "asc": 70,
+            "ascii": 70,
+            "txt": 70,
+            "aif": 71,
+            "aiff": 71,
+            "mpg": 72,
+            "mpeg": 72,
+            "cmx": 73,
+            "can": 74,
+            "canv": 74,
+            "svg": 75,
+            "svgz": 76,
+            "svz": 76,
+            "emf": 77,
+            "asf": 81,
+            "wma": 82,
+            "wmv": 83,
+            "swf": 1704
+        },
+        _docFormatContentType: {
+            1: "image/bmp",
+            2: "image/tiff",
+            3: "image/jpeg",
+            5: "image/gif",
+            6: "application/postscript",
+            7: "application/postscript",
+            13: "video/avi",
+            14: "audio/wav",
+            16: "image/x-wmf",
+            30: "application/msword",
+            31: "text/html",
+            50: "application/pdf",
+            53: "image/png",
+            67: "audio/mpeg",
+            68: "video/quicktime",
+            72: "video/mpeg",
+            82: "audio/x-ms-wma",
+            83: "video/x-ms-wmv"
+        },
+        getDocType: function (format) {
+            return AppData._docFormatContentType[format];
+        },
+        getDocFormatFromExt: function(fileExt) {
+            return AppData._docFormat[fileExt];
         },
         /**
          * @class formatViewData 
@@ -261,8 +373,8 @@
                     }
                 };
                 Log.print(Log.l.info, "calling xhr method=GET url=" + next);
-                var ret = WinJS.xhr(options).then(function (response) {
-                    Log.print(Log.l.trace, "success!");
+                var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                    Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                     try {
                         var obj = jsonParse(response.responseText);
                         if (obj && obj.d) {
@@ -282,6 +394,7 @@
                         Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                         error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                     }
+                    Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -333,14 +446,16 @@
                         }
                     };
                     Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                    return WinJS.xhr(options).then(function (responseAttribSpec) {
-                        Log.print(Log.l.trace, "success!");
+                    return WinJS.xhr(options).then(function xhrSuccess(responseAttribSpec) {
+                        Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                         try {
                             var json = jsonParse(responseAttribSpec.responseText);
+                            Log.ret(Log.l.trace);
                             return that.fetchAllAttribSpecs(that, json, followFunction, complete, error, param1, param2);
                         } catch (exception) {
                             Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                             error({ status: 500, statusText: "AttribSpecExtView parse error " + (exception && exception.message) });
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
@@ -519,6 +634,19 @@
                                         filterString += curFilterString;
                                     }
                                 } else {
+                                    var addRestriction = function (prevFilterString, newRestriction) {
+                                        if (prevFilterString && prevFilterString.length > 0) {
+                                            var addOperator = "";
+                                            if (restriction.bUseOr) {
+                                                addOperator = "%20or%20";
+                                            } else {
+                                                addOperator = "%20and%20";
+                                            }
+                                            return prevFilterString + addOperator + newRestriction;
+                                        } else {
+                                            return newRestriction;
+                                        }
+                                    }
                                     for (r = 0; r < length; r++) {
                                         curFilterString = "";
                                         for (i = 0; i < that.attribSpecs.length; i++) {
@@ -529,13 +657,6 @@
                                                     !(curRestriction === null) &&
                                                     !(typeof curRestriction === "string" && curRestriction.length === 0)) {
                                                     Log.print(Log.l.trace, viewAttributeName + "=" + curRestriction);
-                                                    if (curFilterString.length > 0) {
-														if (restriction.bUseOr){
-                                                            curFilterString += "%20or%20";
-													    } else {
-                                                            curFilterString += "%20and%20"; //<--
-													    }
-                                                    }
                                                     if (that.attribSpecs[i].AttribTypeID === 3) {
                                                         // string attribute: generate <attribute> LIKE '<restriction>%' query
                                                         if (typeof curRestriction === "object") {
@@ -544,17 +665,22 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString += "startswith(" + viewAttributeName + ",'" + curRestriction[r] + "')";
+                                                                    curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + curRestriction[r] + "')");
                                                                 }
                                                             } else {
+                                                                curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
-                                                                        hasRestriction = true;
-                                                                        if (j > 0) {
+                                                                        if (hasRestriction) {
                                                                             curFilterString += "%20or%20";
                                                                         }
-                                                                        curFilterString += "startswith(" + viewAttributeName + ",'" + curRestriction[j] + "')";
+                                                                        if (curRestriction[j] === "NULL") {
+                                                                            curFilterString += viewAttributeName + "%20eq%20null";
+                                                                        } else {
+                                                                            curFilterString += "startswith(" + viewAttributeName + ",'" + curRestriction[j] + "')";
+                                                                        }
+                                                                        hasRestriction = true;
                                                                     }
                                                                 }
                                                                 if (!hasRestriction) {
@@ -562,7 +688,7 @@
                                                                 }
                                                             }
                                                         } else {
-                                                            curFilterString += "startswith(" + viewAttributeName + ",'" + curRestriction + "')";
+                                                            curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + curRestriction + "')");
                                                         }
                                                         // for timestamp as atttribute type
                                                     } else if (that.attribSpecs[i].AttribTypeID === 8) {
@@ -578,27 +704,27 @@
                                                                     day = date.getDate();
                                                                     month = date.getMonth() + 1;
                                                                     year = date.getFullYear();
-                                                                    curFilterString +=
+                                                                    curFilterString = addRestriction(curFilterString, 
                                                                         year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
                                                                         month.toString() + "%20eq%20month(" + viewAttributeName + ")%20and%20" +
-                                                                        day.toString() + "%20eq%20day(" + viewAttributeName + ")";
+                                                                        day.toString() + "%20eq%20day(" + viewAttributeName + ")");
                                                                 }
                                                             } else {
+                                                                curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
-                                                                        hasRestriction = true;
-                                                                        if (j > 0) {
+                                                                        if (hasRestriction) {
                                                                             curFilterString += "%20or%20";
                                                                         }
                                                                         date = new Date(curRestriction[j]);
                                                                         day = date.getDate();
                                                                         month = date.getMonth() + 1;
                                                                         year = date.getFullYear();
-                                                                        curFilterString +=
-                                                                            year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
+                                                                        curFilterString += year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
                                                                             month.toString() + "%20eq%20month(" + viewAttributeName + ")%20and%20" +
                                                                             day.toString() + "%20eq%20day(" + viewAttributeName + ")";
+                                                                        hasRestriction = true;
                                                                     }
                                                                 }
                                                                 if (!hasRestriction) {
@@ -607,18 +733,18 @@
                                                             }
                                                         } else {
 															if (curRestriction === "NULL") {
-																curFilterString += viewAttributeName + "%20eq%20null";
+															    curFilterString = addRestriction(curFilterString,viewAttributeName + "%20eq%20null");
 														    } else if (curRestriction === "NOT NULL") {
-																curFilterString += viewAttributeName + "%20ne%20null";
+														        curFilterString = addRestriction(curFilterString, viewAttributeName + "%20ne%20null");
 															} else {
 																date = new Date(curRestriction);
 																day = date.getDate();
 																month = date.getMonth() + 1;
 																year = date.getFullYear();
-																curFilterString +=
+																curFilterString = addRestriction(curFilterString,
 																	year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
 																	month.toString() + "%20eq%20month(" + viewAttributeName + ")%20and%20" +
-																	day.toString() + "%20eq%20day(" + viewAttributeName + ")";
+																	day.toString() + "%20eq%20day(" + viewAttributeName + ")");
 															}
                                                         }
                                                     } else {
@@ -628,17 +754,22 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString += viewAttributeName + "%20eq%20" + curRestriction[r];
+                                                                    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20eq%20" + curRestriction[r]);
                                                                 }
                                                             } else {
+                                                                curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
                                                                         if (hasRestriction) {
                                                                             curFilterString += "%20or%20";
                                                                         }
+                                                                        if (curRestriction[j] === "NULL") {
+                                                                            curFilterString += viewAttributeName + "%20eq%20null";
+                                                                        } else {
+                                                                            curFilterString += viewAttributeName + "%20eq%20" + curRestriction[j];
+                                                                        }
                                                                         hasRestriction = true;
-                                                                        curFilterString += viewAttributeName + "%20eq%20" + curRestriction[j];
                                                                     }
                                                                 }
                                                                 if (!hasRestriction) {
@@ -651,11 +782,11 @@
                                                             } else {
                                                                 // other attribute: generate <attribute> = <restriction> query
                                                                 if (curRestriction === "NULL") {
-                                                                    curFilterString += viewAttributeName + "%20eq%20null";
+                                                                    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20eq%20null");
 																} else if (curRestriction === "NOT NULL") {
-																	curFilterString += viewAttributeName + "%20ne%20null";
+																    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20ne%20null");
                                                                 } else {
-                                                                    curFilterString += viewAttributeName + "%20eq%20" + curRestriction;
+																    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20eq%20" + curRestriction);
                                                                 }
                                                             }
                                                         }
@@ -747,8 +878,8 @@
                         }
                         var values = [];
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                            Log.print(Log.l.info, "xsql: SELECT success");
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=SELECT");
                             var results = [];
                             var i, j;
                             if (res && res.rows) {
@@ -788,6 +919,8 @@
                                 json.d = that._pages[0];
                             }
                             complete(json);
+                            Log.ret(Log.l.trace);
+                            return WinJS.Promise.as();
                         }, function (err) {
                             Log.print(Log.l.info, "xsql: SELECT error " + err);
                             error(err);
@@ -843,8 +976,8 @@
                             }
                         };
                         Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                             try {
                                 var json = jsonParse(response.responseText);
                                 if (that._maxPageSize && json && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
@@ -873,6 +1006,7 @@
                                 var err = { status: 500, statusText: "data parse error " + (exception && exception.message) }
                                 error(err);
                             }
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -984,8 +1118,8 @@
                             }
                         };
                         Log.print(Log.l.info, "calling xhr method=GET url=" + nextUrl);
-                        ret = WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                             try {
                                 var json = jsonParse(response.responseText);
                                 if (that._maxPageSize && json && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
@@ -1021,6 +1155,7 @@
                                 Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                                 error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                             }
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1060,8 +1195,8 @@
                         var stmt = "SELECT * FROM \"" + relationName + "\" WHERE \"" + that.pkName + "\"=?";
                         var values = [recordId];
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                            Log.print(Log.l.info, "xsql: SELECT success");
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=SELECT");
                             if (res && res.rows && res.rows.length > 0) {
                                 var result;
                                 if (that.formatId) {
@@ -1078,6 +1213,7 @@
                                 var err = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
                                 error(err);
                             }
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(err) {
                             error(err);
@@ -1140,8 +1276,8 @@
                         }
                     };
                     Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                    ret = WinJS.xhr(options).then(function (response) {
-                        Log.print(Log.l.trace, "success!");
+                    ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                        Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                         try {
                             var obj = jsonParse(response.responseText);
                             if (obj && obj.d) {
@@ -1154,6 +1290,7 @@
                             Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                             error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                         }
+                        Log.ret(Log.l.trace);
                         return WinJS.Promise.as();
                     }, function (errorResponse) {
                         Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1189,13 +1326,15 @@
                         var stmt = "DELETE FROM \"" + that.relationName + "\" WHERE \"" + primKeyId + "\"=?";
                         var values = [recordId];
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        ret = SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                            Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                        ret = SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=DELETE rowsAffected=" + res.rowsAffected);
                             var prevRecId = AppData.getRecordId(that.relationName);
                             if (prevRecId === recordId) {
                                 AppData.setRecordId(that.relationName, null);
                             }
                             complete({});
+                            Log.ret(Log.l.trace);
+                            return WinJS.Promise.as();
                         }, function (curerr) {
                             Log.print(Log.l.error, "xsql: DELETE returned " + curerr);
                             error(curerr);
@@ -1221,13 +1360,14 @@
                             }
                         };
                         Log.print(Log.l.info, "calling xhr method=DELETE url=" + url);
-                        ret = WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=DELETE");
                             var prevRecId = AppData.getRecordId(that.relationName);
                             if (prevRecId === recordId) {
                                 AppData.setRecordId(that.relationName, null);
                             }
                             complete(response);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1302,10 +1442,12 @@
                             values.push(recordId);
                             stmt += stmtValues + " WHERE \"" + primKeyId + "\"=?";
                             Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                            return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                                Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                            return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                                Log.call(Log.l.trace, "AppData.formatViewData.", "method=DELETE rowsAffected=" + res.rowsAffected);
                                 complete({});
-                            }, function(curerr) {
+                                Log.ret(Log.l.trace);
+                                return WinJS.Promise.as();
+                            }, function (curerr) {
                                 Log.print(Log.l.error, "xsql: UPDATE returned " + curerr);
                                 error(curerr);
                             });
@@ -1338,9 +1480,10 @@
                         options.password = AppData.getOnlinePassword();
                         options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
                         Log.print(Log.l.info, "calling xhr method=PUT url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=PUT");
                             complete(response);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1417,9 +1560,10 @@
                         var recordId = 0;
                         var result = null;
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (insertRes) {
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(insertRes) {
                             recordId = insertRes.insertId;
-                            Log.print(Log.l.info, "xsql: returned recordId=" + recordId);
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=INSERT recordId=" + recordId);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(curerr) {
                             Log.print(Log.l.error, "xsql: INSERT returned " + curerr);
@@ -1434,8 +1578,8 @@
                                 stmt = "SELECT * FROM \"" + relationName + "\" WHERE \"" + that.pkName + "\" = " + recordId.toString();
                                 values = [];
                                 Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                                return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                                    Log.print(Log.l.info, "xsql: SELECT success");
+                                return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                                    Log.call(Log.l.trace, "AppData.formatViewData.", "method=SELECT");
                                     if (res && res.rows && res.rows.length > 0) {
                                         if (that.formatId) {
                                             result = res.rows.item(0);
@@ -1451,7 +1595,9 @@
                                         var curerr = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
                                         error(curerr);
                                     }
-                                }, function(curerr) {
+                                    Log.ret(Log.l.trace);
+                                    return WinJS.Promise.as();
+                                }, function (curerr) {
                                     Log.print(Log.l.error, "xsql: SELECT returned " + curerr);
                                     error(curerr);
                                 });
@@ -1492,9 +1638,9 @@
                         options.password = AppData.getOnlinePassword(that._isRegister);
                         options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
                         Log.print(Log.l.info, "calling xhr method=POST url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
                             var err;
-                            Log.print(Log.l.trace, "success!");
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=POST");
                             try {
                                 var obj = jsonParse(response.responseText);
                                 if (obj && obj.d) {
@@ -1508,6 +1654,7 @@
                                 err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
                                 error(err);
                             }
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1563,8 +1710,8 @@
                     }
                 };
                 Log.print(Log.l.info, "calling xhr method=GET url=" + next);
-                var ret = WinJS.xhr(options).then(function (response) {
-                    Log.print(Log.l.trace, "success!");
+                var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                    Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                     try {
                         var obj = jsonParse(response.responseText);
                         if (obj && obj.d) {
@@ -1584,6 +1731,7 @@
                         Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                         error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                     }
+                    Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -1647,15 +1795,17 @@
                         }
                     };
                     Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                    return WinJS.xhr(options).then(function (response) {
-                        Log.print(Log.l.trace, "success!");
+                    return WinJS.xhr(options).then(function xhrSuccess(response) {
+                        Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                         try {
                             var obj = jsonParse(response.responseText);
+                            Log.ret(Log.l.trace);
                             return that.fetchAll(that, obj, complete, error);
                         } catch (exception) {
                             Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                             var err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
                             error(err);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
@@ -1724,6 +1874,19 @@
                     });
                 }
                 Log.ret(Log.l.trace);
+                return ret;
+            },
+            getRecordId: function (record) {
+                var ret = null;
+                if (record) {
+                    var primKeyId;
+                    if (this._isLocal) {
+                        primKeyId = this.pkName;
+                    } else {
+                        primKeyId = this.relationName + "VIEWID";
+                    }
+                    ret = record[primKeyId];
+                }
                 return ret;
             }
         }),
@@ -1974,8 +2137,8 @@
                     }
                 };
                 Log.print(Log.l.info, "calling xhr method=GET url=" + next);
-                var ret = WinJS.xhr(options).then(function (response) {
-                    Log.print(Log.l.trace, "success!");
+                var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                    Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                     try {
                         var obj = jsonParse(response.responseText);
                         if (obj && obj.d) {
@@ -1995,6 +2158,7 @@
                         Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                         error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                     }
+                    Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -2042,10 +2206,11 @@
                         }
                     };
                     Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                    return WinJS.xhr(options).then(function (responseAttribSpec) {
-                        Log.print(Log.l.trace, "success!");
+                    return WinJS.xhr(options).then(function xhrSuccess(responseAttribSpec) {
+                        Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                         try {
                             var json = jsonParse(responseAttribSpec.responseText);
+                            Log.ret(Log.l.trace);
                             return that.fetchAllAttribSpecs(that, json, followFunction, complete, error, param);
                             //if (json && json.d) {
                             //    that._attribSpecs = json.d.results;
@@ -2054,6 +2219,7 @@
                         } catch (exception) {
                             Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                             error({ status: 500, statusText: "AttribSpecExtView parse error " + (exception && exception.message) });
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
@@ -2158,14 +2324,15 @@
                     }
                 };
                 Log.print(Log.l.info, "calling xhr method=GET url=" + next);
-                var ret = WinJS.xhr(options).then(function (response) {
-                    Log.print(Log.l.trace, "success!");
+                var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                    Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                     try {
                         var obj = jsonParse(response.responseText);
                         if (obj && obj.d) {
                             results = results.concat(obj.d.results);
                             var next = that.getNextUrl(obj);
                             if (next) {
+                                Log.ret(Log.l.trace);
                                 return that.fetchNext(that, results, next, complete, error, recordId);
                             } else {
                                 obj.d.results = results;
@@ -2188,6 +2355,7 @@
                         Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                         error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
                     }
+                    Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     Log.print(Log.l.error,"error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -2280,8 +2448,8 @@
                             values.push(recordId);
                         }
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values).then(function (res) {
-                            Log.print(Log.l.info, "xsql: SELECT success");
+                        return SQLite.xsql(that.db, stmt, values).then(function xsqlSuccess(res) {
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=SELECT");
                             var results = [];
                             if (res && res.rows) {
                                 for (var i = 0; i < res.rows.length; i++) {
@@ -2302,7 +2470,9 @@
                                 });
                             }
                             complete(obj);
-                        }, function(err) {
+                            Log.ret(Log.l.trace);
+                            return WinJS.Promise.as();
+                        }, function (err) {
                             error(err);
                         });
                     }
@@ -2351,14 +2521,16 @@
                             }
                         };
                         Log.print(Log.l.info, "calling xhr GET url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                             try {
                                 var obj = jsonParse(response.responseText);
+                                Log.ret(Log.l.trace);
                                 return that.fetchAll(that, obj, complete, error, recordId);
                             } catch (exception) {
                                 Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                                 error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
+                                Log.ret(Log.l.trace);
                                 return WinJS.Promise.as();
                             }
                         }, function (errorResponse) {
@@ -2426,20 +2598,21 @@
                     }
                 };
                 Log.print(Log.l.info, "calling xhr GET url=" + url);
-                var ret = WinJS.xhr(options).then(function (response) {
-                    Log.print(Log.l.trace, "success!");
+                var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                    Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                     try {
                         var obj = jsonParse(response.responseText);
+                        Log.ret(Log.l.trace);
                         return that.fetchAll(that, obj, complete, error, recordId);
                     } catch (exception) {
                         Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                         error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
+                        Log.ret(Log.l.trace);
                         return WinJS.Promise.as();
                     }
                 }, function (errorResponse) {
                     error(errorResponse);
                 });
-
                 // this will return a promise to controller
                 Log.ret(Log.l.trace);
                 return ret;
@@ -2488,9 +2661,11 @@
                             values.push(recordId);
                             stmt += stmtValues + " WHERE \"" + primKeyId + "\"=?";
                             Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                            return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                                Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                            return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                                Log.call(Log.l.trace, "AppData.lgntInitData.", "method=UPDATE rowsAffected=" + res.rowsAffected);
                                 complete({});
+                                Log.ret(Log.l.trace);
+                                return WinJS.Promise.as();
                             }, function (curerr) {
                                 Log.print(Log.l.error, "xsql: UPDATE returned " + curerr);
                                 error(curerr);
@@ -2528,9 +2703,10 @@
                         options.password = AppData.getOnlinePassword();
                         options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
                         Log.print(Log.l.info, "calling xhr method=PUT url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "success!");
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=PUT");
                             complete(response);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -2576,9 +2752,10 @@
                         var stmt = "DELETE FROM \"" + initRelationName + "\" WHERE \"" + initKeyId + "\"=?";
                         var values = [recordId];
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                            Log.print(Log.l.info, "xsql: DELETE returned rowsAffected=" + res.rowsAffected);
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=DELETE rowsAffected=" + res.rowsAffected);
                             complete({});
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (curerr) {
                             Log.print(Log.l.error, "xsql: DELETE returned " + curerr);
@@ -2606,9 +2783,10 @@
                             }
                         };
                         Log.print(Log.l.info, "calling xhr method=DELETE url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
-                            Log.print(Log.l.trace, "deleteRecord: success!");
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=DELETE");
                             complete(response);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -2681,9 +2859,10 @@
                             stmt += stmtValues;
                         }
                         Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (insertRes) {
+                        return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(insertRes) {
                             recordId = insertRes.insertId;
-                            Log.print(Log.l.info, "xsql: returned " + initKeyId + "=" + recordId);
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=INSERT recordId=" + recordId);
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (curerr) {
                             Log.print(Log.l.error, "xsql: INSERT returned " + curerr);
@@ -2695,8 +2874,8 @@
                                 stmt = "SELECT * FROM \"" + relationName + "\" WHERE \"" + initKeyId + "\"=? AND \"LanguageSpecID\"=?";
                                 values = [recordId, languageId];
                                 Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                                return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function (res) {
-                                    Log.print(Log.l.info, "xsql: SELECT success");
+                                return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
+                                    Log.call(Log.l.trace, "AppData.lgntInitData.", "method=SELECT");
                                     if (res && res.rows && res.rows.length > 0) {
                                         var result = that.viewRecordFromTableRecord(that, res.rows.item(0));
                                         var json = {
@@ -2708,6 +2887,8 @@
                                         var curerr = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
                                         error(curerr);
                                     }
+                                    Log.ret(Log.l.trace);
+                                    return WinJS.Promise.as();
                                 }, function (curerr) {
                                     Log.print(Log.l.error, "xsql: SELECT returned " + curerr);
                                     error(curerr);
@@ -2750,9 +2931,9 @@
                         options.password = AppData.getOnlinePassword(that._isRegister);
                         options.headers["Authorization"] = "Basic " + btoa(options.user + ":" + options.password);
                         Log.print(Log.l.info, "calling xhr method=POST url=" + url);
-                        return WinJS.xhr(options).then(function (response) {
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
                             var err;
-                            Log.print(Log.l.trace, "INSERT success!");
+                            Log.call(Log.l.trace, "AppData.lgntInitData.", "method=INSERT");
                             try {
                                 var obj = jsonParse(response.responseText);
                                 if (obj && obj.d) {
@@ -2767,6 +2948,7 @@
                                 err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
                                 error(err);
                             }
+                            Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
                             Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -2796,8 +2978,8 @@
                                     }
                                 };
                                 Log.print(Log.l.info, "calling xhr GET url=" + url);
-                                return WinJS.xhr(options).then(function(response) {
-                                    Log.print(Log.l.trace, "success!");
+                                return WinJS.xhr(options).then(function xhrSuccess(response) {
+                                    Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                                     try {
                                         var json = jsonParse(response.responseText);
                                         complete(json);
@@ -2809,6 +2991,7 @@
                                             statusText: "data parse error " + (exception && exception.message)
                                         });
                                     }
+                                    Log.ret(Log.l.trace);
                                     return WinJS.Promise.as();
                                 }, function(errorResponse) {
                                     error(errorResponse);
@@ -3012,8 +3195,8 @@
                 }
             };
             Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-            var ret = WinJS.xhr(options).then(function (response) {
-                Log.print(Log.l.trace, "success!");
+            var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
+                Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
                 try {
                     var json = jsonParse(response.responseText);
                     complete(json);
@@ -3021,6 +3204,7 @@
                     Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                     error({ status: 500, statusText: "call " + name + " parse error " + (exception && exception.message) });
                 }
+                Log.ret(Log.l.trace);
                 return WinJS.Promise.as();
             }, function (errorResponse) {
                 Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
@@ -3335,7 +3519,10 @@
 
             // value now in UTC ms!
             var msString = value.replace("\/Date(", "").replace(")\/", "");
-            var milliseconds = parseInt(msString) - AppData.appSettings.odata.timeZoneRemoteAdjustment * 60000;
+            var milliseconds = parseInt(msString);
+            if (AppData.appSettings.odata.timeZoneRemoteAdjustment) {
+                milliseconds -= AppData.appSettings.odata.timeZoneRemoteAdjustment * 60000;
+            }
             var date = new Date(milliseconds);
             var day = date.getDate();
             var month = date.getMonth() + 1;

@@ -66,43 +66,24 @@
         description: {
             get: function() {
                 return "Usage: /<command> [/<worker-name>]\n\n<command>:\n\nstart - Starts service or worker\nstop -  Stops service or worker\npause - Pauses service or worker\n\n<worker-name>:\n\nName of worker module\n\n";
-            }
+            }    
         },
 
-        DispatcherModule: WinJS.Class.define(function dispatcherModule(filename) {
-            var factory = require(filename);
-            if (factory) {
-                for (var prop in factory) {
-                    if (factory.hasOwnProperty(prop)) {
-                        this[prop] = factory[prop];
-                    }
-                }
-            }
-            this._filename = filename;
-            this._factory = factory;
-        }, {
-            _filename: null,
-            _factory: null
-        }),
         /**
         * @class WorkDispatcher
         * @memberof WorkerService
         * @param {string} name - The name of the worker loop
         * @description This class implements the class for a worker service object
         */
-        WorkDispatcher: WinJS.Class.define(function workDispatcher(name, instance) {
+        WorkDispatcher: WinJS.Class.define(function workDispatcher(name) {
             Log.call(Log.l.trace, "WorkerService.WorkDispatcher.", "name=" + name);
-            this._promise = new WinJS.Promise.as();
+            this._promise = WinJS.Promise.as();
             this._name = name;
-            if (typeof instance === "number") {
-                this._instance = instance;
-            }
             this._status = WorkerService.statusId.stopped;
             Log.ret(Log.l.trace);
         }, {
             _module: null,
             _name: null,
-            _instance: null,
             _info: null,
             _nextStatus: null,
 
@@ -110,32 +91,26 @@
             _waitTimeMs: 1000,
             _runLoop: function () {
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
-                var that = this;
-                this._promise.then(function() {
-                    if (that.status === WorkerService.statusId.started) {
-                        that._status = WorkerService.statusId.busy;
-                        var ret = that.activity();
-                        if (ret && typeof ret.then === "function") {
-                            return ret;
-                        }
+                if (this.status === WorkerService.statusId.started) {
+                    this._status = WorkerService.statusId.busy;
+                    this._promise = this.activity();
+                    if (!this._promise || typeof this._promise.then !== "function") {
+                        this._promise = this._defaultActivity();
                     }
-                    return new WinJS.Promise.as();
-                }).then(function () {
-                    if (that._nextStatus) {
-                        Log.print(Log.l.info, "now switch to status=" + that._nextStatus);
-                        that._status = that._nextStatus;
-                        that._nextStatus = null;
-                        if (that._status === WorkerService.statusId.stopped) {
-                            return that.dispose();
+                    var that = this;
+                    this._promise.then(function () {
+                        if (that._nextStatus) {
+                            Log.print(Log.l.info, "now switch to status=" + that._nextStatus);
+                            that._status = that._nextStatus;
+                            that._nextStatus = null;
+                        } else if (that._status === WorkerService.statusId.busy) {
+                            that._status = WorkerService.statusId.started;
+                            that._promise = WinJS.Promise.timeout(that._waitTimeMs).then(function () {
+                                that._runLoop();
+                            });
                         }
-                    } else if (that._status === WorkerService.statusId.busy) {
-                        that._status = WorkerService.statusId.started;
-                        return WinJS.Promise.timeout(that.waitTimeMs).then(function () {
-                            that._runLoop();
-                        });
-                    }
-                    return new WinJS.Promise.as();
-                });
+                    });
+                }
                 Log.ret(Log.l.trace);
             },
 
@@ -143,21 +118,6 @@
             name: {
                 get: function () {
                     return this._name;
-                }
-            },
-
-            instance: {
-                get: function () {
-                    return this._instance;
-                }
-            },
-
-            waitTimeMs: {
-                get: function() {
-                    if (this._module && this._module.waitTimeMs) {
-                        return this._module.waitTimeMs;
-                    }
-                    return this._waitTimeMs;
                 }
             },
 
@@ -179,67 +139,72 @@
                 Log.Print(Log.l.trace, "use WorkerService.WorkLoop._defaultActivity");
                 return new WinJS.Promise.as();
             },
-            activity: function() {
-                var ret;
-                if (this._activity && this._module) {
-                    ret = this._activity.call(this._module);
-                } else {
-                    ret = this._defaultActivity;
+            activity: {
+                get: function () {
+                    return this._activity || this._defaultActivity;
+                },
+                set: function (newActivity) {
+                    this._activity = newActivity;
                 }
-                return ret;
             },
+
             _dispose: null,
             _defaultDispose: function () {
                 Log.Print(Log.l.trace, "use WorkerService.WorkLoop._defaultDispose");
                 return new WinJS.Promise.as();
             },
-            dispose: function () {
-                var ret;
-                if (this._dispose && this._module) {
-                    ret = this._dispose.call(this._module);
-                } else {
-                    ret = this._defaultDispose;
+            dispose: {
+                get: function () {
+                    return this._dispose || this._defaultDispose;
+                },
+                set: function (newDispose) {
+                    this._dispose = newDispose;
                 }
-                this._module = null;
-                return ret;
             },
 
             info: {
                 get: function() {
-                    return this._info && this._module && this._info.call(this._module) || "";
+                    return this._info && this._info() || "";
                 }
             },
 
             start: function () {
+                var curPromise = null;
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
-                var that = this;
-                this._promise.then(function() {
-                    if (that.status === WorkerService.statusId.stopped) {
-                        var filename = "../../../worker/" + that.name + "/" + that.name + ".js";
-                        that._module = new WorkerService.DispatcherModule(filename);
-                        if (typeof that._module.info === "function") {
-                            that._info = that._module.info;
+                if (this.status === WorkerService.statusId.stopped) {
+                    if (!this._module) {
+                        var filename = "../../../worker/" + this.name + "/" + this.name + ".js";
+                        this._module = require(filename);
+                        if (this._module.waitTimeMs > 0) {
+                            this._waitTimeMs = this._module.waitTimeMs;
                         }
+                        if (typeof this._module.info === "function") {
+                            this._info = this._module.info;
+                        }
+                    }
+                    this._status = WorkerService.statusId.started;
+                    if (typeof this._module.startup === "function") {
+                        curPromise = this._module.startup();
+                    }
+                    if (!curPromise) {
+                        curPromise = WinJS.Promise.as();
+                    }
+                } else if (this._status !== WorkerService.statusId.started) {
+                    this._status = WorkerService.statusId.started;
+                    curPromise = WinJS.Promise.as();
+                }
+                if (this._module && curPromise) {
+                    var that = this;
+                    curPromise.then(function () {
                         if (typeof that._module.activity === "function") {
-                            that._activity = that._module.activity;
+                            that.activity = that._module.activity;
                         }
                         if (typeof that._module.dispose === "function") {
-                            that._dispose = that._module.dispose;
+                            that.dispose = that._module.dispose;
                         }
-                        if (typeof that._module.startup === "function") {
-                            var ret = that._module.startup.call(that._module);
-                            if (ret && typeof ret.then === "function") {
-                                return ret;
-                            }
-                        }
-                    }
-                    return new WinJS.Promise.as();
-                }).then(function () {
-                    if (that._status !== WorkerService.statusId.started) {
-                        that._status = WorkerService.statusId.started;
                         that._runLoop();
-                    }
-                });
+                    });
+                }
                 Log.ret(Log.l.trace);
             },
 
@@ -252,6 +217,10 @@
             stop: function () {
                 Log.call(Log.l.trace, "WorkerService.WorkDispatcher.");
                 this._nextStatus = WorkerService.statusId.stopped;
+                if (this._promise) {
+                    this._promise.cancel();
+                }
+                this._runLoop();
                 Log.ret(Log.l.trace);
             }
         }),
@@ -270,31 +239,11 @@
             this._dispatcher = [];
             if (dispatcherNames && dispatcherNames.length > 0) {
                 for (var i = 0; i < dispatcherNames.length; i++) {
-                    var count = 1;
-                    var dispatcherName = null;
-                    var dispatcher = dispatcherNames[i];
-                    if (dispatcher) {
-                        if (typeof dispatcher === "string") {
-                            dispatcherName = dispatcher;
-                        } else if (typeof dispatcher === "object" && typeof dispatcher.name === "string") {
-                            dispatcherName = dispatcher.name;
-                            if (typeof dispatcher.count === "number" && dispatcher.count > 1) {
-                                count = dispatcher.count;
-                                if (count > 1000) {
-                                    count = 1000;
-                                }
-                            }
-                        }
-                    }
-                    if (dispatcherName) {
-                        for (var j = 0; j < count; j++) {
-                            var newDispatcher = new WorkerService.WorkDispatcher(dispatcherName, j);
-                            this._dispatcher.push(newDispatcher);
-                        }
-                    }
+                    var newDispatcher = new WorkerService.WorkDispatcher(dispatcherNames[i]);
+                    this._dispatcher.push(newDispatcher);
                 }
             }
-            this._promise = new WinJS.Promise.as();
+            this._promise = WinJS.Promise.as();
             this._listening = false;
             this._port = port;
             if (port) {
@@ -375,7 +324,6 @@
             },
 
             _requestHandler: function (req, res) {
-                var i;
                 var bodyText = "";
                 Log.call(Log.l.info, "WorkerService.WorkLoop.", "request received: url=" + req.url);
                 res.writeHead(200, { "Content-Type": "text/plain" });
@@ -395,26 +343,15 @@
                         bodyText += "param: " + param + "\n";
                     }
                     // check for dispatcher by name or main loop
-                    var objects = [];
+                    var object;
                     if (param) {
-                        var commaPos = param.indexOf("/");
-                        var name;
-                        var instance;
-                        if (commaPos > 0) {
-                            name = param.substr(0, commaPos);
-                            instance = parseInt(param.substr(commaPos + 1));
-                        } else {
-                            name = param;
-                        }
-                        objects = this.getDispatchersByName(name, instance);
+                        object = this.getDispatcherByName(param);
                     } else {
-                        objects[0] = this;
+                        object = this;
                     }
                     // do known command
-                    if (objects.length > 0) {
-                        for (i = 0; i < objects.length; i++) {
-                            var object = objects[i];
-                            switch (command) {
+                    if (object) {
+                        switch (command) {
                             case "start":
                                 object.start();
                                 break;
@@ -426,7 +363,6 @@
                                 break;
                             default:
                                 bodyText += "\n" + WorkerService.description;
-                            }
                         }
                     } else {
                         bodyText += "\n" + WorkerService.description;
@@ -434,15 +370,10 @@
                 }
 
                 bodyText += "\nService status:\n(" + this.status + ")\n\nDispatcher status:";
-                for (i = 0; i < this.dispatcherCount; i++) {
+                for (var i = 0; i < this.dispatcherCount; i++) {
                     var curDispatcher = this.getDispatcher(i);
-                    var curInstance = curDispatcher.instance;
-                    bodyText += "\n---------- [" + i + "] " + curDispatcher.name;
-                    if (typeof curInstance === "number") {
-                        bodyText += "[" + curInstance + "]";
-                    }
-                    bodyText += " (" + curDispatcher.status + ") ----------";
-                    bodyText += "\n" + curDispatcher.info + "\n" + " waitTimeMs:" + curDispatcher.waitTimeMs + "\n";
+                    bodyText += "\n---------- [" + i + "] " + curDispatcher.name + " (" + curDispatcher.status + ") ----------";
+                    bodyText += "\n" + curDispatcher.info + "\n";
                 }
 
                 res.end(bodyText);
@@ -485,23 +416,21 @@
             },
 
             /**
-            * @function getDispatchersByName
+            * @function getDispatcherByName
             * @param {number} index - The index of the dispatcher object in the dispatcher list of the WorkLoop object
             * @returns {WorkerService.WorkDispatcher} The dispatcher object a given index.
             * @memberof WorkerService.WorkLoop
             * @description Call this function to retrieve a dispatcher object a given index.
             */
-            getDispatchersByName: function (name, instance) {
-                var ret = [];
+            getDispatcherByName: function (name) {
                 if (this._dispatcher) {
                     for (var i = 0; i < this._dispatcher.length; i++) {
-                        if (this._dispatcher[i] && this._dispatcher[i].name === name &&
-                            (typeof instance === "undefined" || this._dispatcher[i].instance === instance)) {
-                            ret.push(this._dispatcher[i]);
+                        if (this._dispatcher[i] && this._dispatcher[i].name === name) {
+                            return this._dispatcher[i];
                         }
                     }
                 }
-                return ret;
+                return null;
             },
 
             /**

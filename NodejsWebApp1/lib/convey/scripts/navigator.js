@@ -10,7 +10,7 @@
 
 (function () {
     "use strict";
-
+    
     var nav = WinJS.Navigation;
 
     WinJS.Namespace.define("Application", {
@@ -238,8 +238,16 @@
          * @memberof Application
          * @description Use this function to navigate to another page.
          */
-        navigateById: function (id, event) {
-            Log.call(Log.l.trace, "Application.", "id=" + id);
+        navigateById: function(id, event, removeBackStack) {
+            Log.call(Log.l.trace, "Application.", "id=" + id + " removeBackStack=" + removeBackStack);
+            var ret = WinJS.Promise.timeout(0).then(function() {
+                Application.navigateByIdEx(id, event, removeBackStack);
+            });
+            Log.ret(Log.l.trace);
+            return ret;
+        },
+        navigateByIdEx: function (id, event, removeBackStack) {
+            Log.call(Log.l.trace, "Application.", "id=" + id + " removeBackStack=" + removeBackStack);
             if (typeof Application._navigateByIdOverride === "function") {
                 id = Application._navigateByIdOverride(id, event);
             }
@@ -251,10 +259,13 @@
             } else if (Application.navigator._nextPage) {
                 Log.print(Log.l.trace, "just navigating to page location=" + Application.navigator._nextPage + " - try later again...");
                 WinJS.Promise.timeout(50).then(function () {
-                    Application.navigateById(id, event);
+                    Application.navigateById(id, event, removeBackStack);
                 });
             } else {
-                nav.navigate(newLocation, event);
+                if (Application.navigator) {
+                    Application.navigator._removeBackStack = !!removeBackStack;
+                }
+                nav.navigate(newLocation, event, removeBackStack);
             }
             Log.ret(Log.l.trace);
         },
@@ -347,6 +358,7 @@
                 addRemovableEventListener(nav, "navigated", this._navigated.bind(this), false);
 
                 window.onresize = this._resized.bind(this);
+                window.onorientationchange = this._orientationchanged.bind(this);
 
                 /**
                  * @member navigator
@@ -362,6 +374,7 @@
                 _fragments: {},
                 _lastNavigationPromise: WinJS.Promise.as(),
                 _beforeNavigatePromise: WinJS.Promise.as(),
+                _beforeNavigateWatchdog: null,
                 _lastViewstate: 0,
                 _lastPage: "",
                 _lastMaster: null,
@@ -372,6 +385,34 @@
                 _prevAppBarHidden: null,
                 _masterHidden: false,
                 _masterMaximized: false,
+                _splitViewRoot: null,
+                _splitViewPane: null,
+                _sliptViewContent: null,
+                _removeBackStack: false,
+                splitViewRoot: {
+                    get: function() {
+                        if (!this._splitViewRoot) {
+                            this._splitViewRoot = document.querySelector("#root-split-view");
+                        }
+                        return this._splitViewRoot;
+                    }
+                },
+                splitViewPane: {
+                    get: function() {
+                        if (!this._splitViewPane && this.splitViewRoot) {
+                            this._splitViewPane = this.splitViewRoot.querySelector("#root-split-view-pane");
+                        }
+                        return this._splitViewPane;
+                    }
+                },
+                splitViewContent: {
+                    get: function () {
+                        if (!this._splitViewContent && this.splitViewRoot) {
+                            this._splitViewContent = this.splitViewRoot.querySelector(".win-splitview-content");
+                        }
+                        return this._splitViewContent;
+                    }
+                },
 
                 // This is the currently loaded Page object.
                 /**
@@ -529,7 +570,10 @@
                         element: element,
                         location: location,
                         options: options,
-                        setPromise: function(promise) {
+                        setPromise: function (promise) {
+                            if (!promise) {
+                                promise = WinJS.Promise.as();
+                            }
                             return promise.then(function() {
                                 return that._loaded(element.id);
                             });
@@ -538,6 +582,56 @@
                     var ret = this._loading({ detail: detail });
                     Log.ret(Log.l.trace, "");
                     return ret;
+                },
+                resizeSplitView: function () {
+                    var ret = false;
+                    Log.call(Log.l.u1, "Application.PageControlNavigator.");
+                    var height = document.body.clientHeight;
+                    // AppHeader element
+                    var headerhost = document.querySelector("#headerhost");
+                    if (headerhost) {
+                        height -= headerhost.clientHeight;
+                    }
+                    var splitViewRoot = this.splitViewRoot;
+                    var splitViewContent = this.splitViewContent;
+                    if (splitViewRoot && splitViewContent) {
+                        if (splitViewRoot.style && splitViewRoot.clientHeight !== height) {
+                            splitViewRoot.style.height = height.toString() + "px";
+                            ret = true;
+                        }
+                        if (AppBar.commandList && AppBar.commandList.length > 0 &&
+                            AppBar.barElement && AppBar.barElement.clientHeight > 0) {
+                            height -= AppBar.barElement.clientHeight;
+                        }
+                        if (splitViewContent.style && splitViewContent.clientHeight !== height) {
+                            splitViewContent.style.height = height.toString() + "px";
+                            ret = true;
+                        }
+                    }
+                    Log.ret(Log.l.u1, "");
+                    return ret;
+                },
+                
+                elementUpdateLayout: function(element) {
+                    var ret = null;
+                    Log.call(Log.l.u1, "Application.PageControlNavigator.");
+                    if (element &&
+                        element.winControl &&
+                        element.winControl.updateLayout) {
+                        if (!element.winControl.inResize) {
+                            Log.print(Log.l.u1, "calling updateLayout...");
+                            ret = element.winControl.updateLayout.call(element.winControl, element);
+                            Log.print(Log.l.u1, "...returned from updateLayout");
+                        } else {
+                            Log.print(Log.l.u1, "semaphore set - try later again!");
+                            var that = this;
+                            ret = WinJS.Promise.timeout(50).then(function() {
+                                return that.elementUpdateLayout(element);
+                            });
+                        }
+                    }
+                    Log.ret(Log.l.u1, "");
+                    return ret || WinJS.Promise.as();
                 },
 
                 // Calculates position and size of master element
@@ -551,32 +645,13 @@
                 resizeMasterElement: function (element) {
                     var ret;
                     Log.call(Log.l.u1, "Application.PageControlNavigator.");
-                    if (element) {
+                    var splitViewContent = Application.navigator && Application.navigator.splitViewContent;
+                    if (element && element.style && splitViewContent) {
                         // current window size
                         var left = 0;
                         var top = 0;
-                        var width;
-                        var height;
-
-                        width = document.body.clientWidth;
-                        height = document.body.clientHeight;
-
-                        // SplitView element
-                        var splitView = document.querySelector("#root-split-view");
-                        if (splitView) {
-                            var splitViewControl = splitView.winControl;
-                            if (splitViewControl &&
-                            (splitViewControl.paneOpened &&
-                                splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline ||
-                                !splitViewControl.paneOpened &&
-                                splitViewControl.closedDisplayMode === WinJS.UI.SplitView.ClosedDisplayMode.inline)) {
-                                var splitViewPane = document.querySelector("#root-split-view-pane");
-                                if (splitViewPane && splitViewPane.clientWidth > 0) {
-                                    width -= splitViewPane.clientWidth;
-                                }
-                            }
-                        }
-
+                        var width = splitViewContent.clientWidth;
+                        var height = splitViewContent.clientHeight;
                         if (width > 899) {
                             width = 450;
                             if (this._masterMaximized) {
@@ -609,13 +684,14 @@
                             }
                         }
                         // hide AppBar if master is maximized
-                        if (AppBar.barControl &&
+                        if (AppBar.barElement && AppBar.barControl &&
                             (this._prevAppBarHidden === null || this._masterMaximized === null ||
                              this._prevAppBarHidden !== this._masterMaximized)) {
                             this._prevAppBarHidden = this._masterMaximized;
+                            var closedDisplayMode = AppBar.barControl.closedDisplayMode;
                             if (this._masterMaximized && !this._masterHidden) {
                                 AppBar.barControl.disabled = true;
-                                AppBar.barControl.closedDisplayMode = "none";
+                                closedDisplayMode = "none";
                             } else {
                                 if (AppBar._commandList && AppBar._commandList.length > 0) {
                                     var existsSecondary = false;
@@ -630,33 +706,30 @@
                                     AppBar.barControl.disabled = false;
                                     if (existsPrimary) {
                                         if (!existsSecondary && AppBar._appBar._hideOverflowButton) {
-                                            AppBar.barControl.closedDisplayMode = "full";
+                                            closedDisplayMode = "full";
                                         } else {
-                                            AppBar.barControl.closedDisplayMode = "compact";
+                                            closedDisplayMode = "compact";
                                         }
                                     } else {
-                                        AppBar.barControl.closedDisplayMode = "minimal";
+                                        closedDisplayMode = "minimal";
                                     }
                                 } else {
                                     AppBar.barControl.disabled = true;
-                                    AppBar.barControl.closedDisplayMode = "none";
+                                    closedDisplayMode = "none";
                                 }
                             }
+                            var heightAdd = AppBar.barElement.clientHeight;
                             AppBar.barControl.close();
-                        }
-
-                        // AppHeader element
-                        var headerhost = document.querySelector("#headerhost");
-                        if (headerhost && headerhost.firstElementChild) {
-                            height -= headerhost.firstElementChild.clientHeight;
-                        }
-
-                        // AppBar element
-                        var barElement = AppBar.barElement;
-                        if (barElement && barElement.clientHeight > 0) {
-                            height -= barElement.clientHeight;
-                        } else {
-                            height -= 10;
+                            if (AppBar.barControl.closedDisplayMode !== closedDisplayMode) {
+                                AppBar.barControl.closedDisplayMode = closedDisplayMode;
+                                if (closedDisplayMode === "none") {
+                                    height += heightAdd;
+                                }
+                                // calling _resize() again later...
+                                WinJS.Promise.timeout(0).then(function () {
+                                    Application.navigator._resized();
+                                });
+                            }
                         }
                         if (this._nextMaster) {
                             element.style.zIndex = "1";
@@ -700,9 +773,7 @@
                             // add class: view-size-bigger
                             WinJS.Utilities.addClass(element, "view-size-bigger");
                         }
-                        if (element.winControl && element.winControl.updateLayout) {
-                            ret = element.winControl.updateLayout.call(element.winControl, element);
-                        }
+                        ret = this.elementUpdateLayout(element);
                     }
                     Log.ret(Log.l.u1, "");
                     return ret;
@@ -719,49 +790,20 @@
                 resizePageElement: function (element) {
                     var ret = null;
                     Log.call(Log.l.u1, "Application.PageControlNavigator.");
-                    if (element) {
+                    var splitViewContent = Application.navigator && Application.navigator.splitViewContent;
+                    if (element && element.style && splitViewContent) {
                         var i;
 
                         // current window size
                         var left = 0;
                         var top = 0;
-                        var width = document.body.clientWidth;
-                        var height = document.body.clientHeight;
-
-                        // AppHeader element
-                        var headerhost = document.querySelector("#headerhost");
-                        if (headerhost && headerhost.firstElementChild) {
-                            height -= headerhost.firstElementChild.clientHeight;
-                        }
-
-                        // SplitView element
-                        var splitView = document.querySelector("#root-split-view");
-                        if (splitView) {
-                            var splitViewControl = splitView.winControl;
-                            if (splitViewControl && 
-                                (splitViewControl.paneOpened &&
-                                 splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline ||
-                                 !splitViewControl.paneOpened &&
-                                 splitViewControl.closedDisplayMode === WinJS.UI.SplitView.ClosedDisplayMode.inline)) {
-                                var splitViewPane = document.querySelector("#root-split-view-pane");
-                                if (splitViewPane && splitViewPane.clientWidth > 0) {
-                                    width -= splitViewPane.clientWidth;
-                                }
-                            }
-                        }
+                        var width = splitViewContent.clientWidth;
+                        var height = splitViewContent.clientHeight;
 
                         // calculate content element dimensions
                         if (this._nextMaster && !this._masterHidden) {
-                            left += this.masterElement.clientWidth;// + 2;
-                            width -= this.masterElement.clientWidth;// + 2;
-                        }
-
-                        // AppBar element
-                        var barElement = AppBar.barElement;
-                        if (barElement && barElement.clientHeight > 0) {
-                            height -= barElement.clientHeight;
-                        } else {
-                            height -= 10;
+                            left += this.masterElement.clientWidth;
+                            width -= this.masterElement.clientWidth;
                         }
 
                         // NavigationBar element
@@ -855,11 +897,16 @@
                                 WinJS.Utilities.addClass(navBarElement, "view-size-bigger");
                             }
                         }
-                        if (element.winControl && element.winControl.updateLayout) {
-                            ret = element.winControl.updateLayout.call(element.winControl, element);
-                        }
+                        this.elementUpdateLayout(element);
                     }
-                    this._updateFragmentsLayout();
+                    if (!this._nextPage || this._nextPage === this._lastPage) {
+                        this._updateFragmentsLayout();
+                    }
+                    WinJS.Promise.timeout(0).then(function setDefaultButtonPos() {
+                        Log.call(Log.l.u1, "Application.PageControlNavigator.resizePageElement.");
+                        AppBar.checkDefaultButtonPos();
+                        Log.ret(Log.l.u1, "");
+                    });
                     Log.ret(Log.l.u1, "");
                     return ret;
                 },
@@ -868,104 +915,100 @@
                 dispose: function () {
                     Log.call(Log.l.trace, "Application.PageControlNavigator.");
                     if (this._disposed) {
+                        Log.ret(Log.l.trace, "extra ignored!");
                         return;
                     }
-
                     this._disposed = true;
                     WinJS.Utilities.disposeSubTree(this._element);
-                    for (var i = 0; i < this._eventHandlerRemover.length; i++) {
-                        this._eventHandlerRemover[i]();
+                    if (this._eventHandlerRemover) {
+                        for (var i = 0; i < this._eventHandlerRemover.length; i++) {
+                            this._eventHandlerRemover[i]();
+                        }
+                        this._eventHandlerRemover = null;
                     }
-                    this._eventHandlerRemover = null;
                     Log.ret(Log.l.trace);
                 },
 
                 // Checks for valid state of current page before navigation via canUnload() function
-                _beforeload: function (args) {
-                    var id = args.detail.element.id;
+                _beforeload: function (id) {
                     Log.call(Log.l.trace, "Application.PageControlNavigator.", "id=" + id);
-                    var fragment = this._fragments[id];
-
-                    this._fragments[id]._inBeforeLoadPromise = true;
-                    var that = this;
+                    var fragment = this._fragments && this._fragments[id];
+                    if (!fragment) {
+                        Log.ret(Log.l.trace, "extra ignored");
+                        return WinJS.Promise.as();
+                    }
+                    if (fragment._beforeLoadWatchdog) {
+                        if (typeof fragment._beforeLoadWatchdog.cancel === "function") {
+                            Log.print(Log.l.trace, "cancel beforeLoadWatchdog promise of fragment[" + id + "]");
+                            fragment._beforeLoadWatchdog.cancel();
+                        }
+                        fragment._beforeLoadWatchdog = null;
+                    }
+                    if (fragment._beforeLoadPromise &&
+                        typeof fragment._beforeLoadPromise.cancel === "function") {
+                        Log.print(Log.l.trace, "cancel beforeLoadPromise of fragment[" + id + "]");
+                        fragment._beforeLoadPromise.cancel();
+                    }
+                    fragment._inBeforeLoadPromise = true;
                     if (fragment._element &&
                         fragment._element.firstElementChild &&
                         fragment._element.firstElementChild.winControl &&
                         typeof fragment._element.firstElementChild.winControl.canUnload === "function") {
-                        this._fragments[id]._beforeLoadPromise = fragment._element.firstElementChild.winControl.canUnload(function(response) {
-                                    Log.print(Log.l.trace,
-                                        "from PageControlNavigator: _beforeload(" + id + ") canUnload true!");
-                                    return WinJS.Promise.timeout(0).then(function() {
-                                        if (that._fragments[id]._inBeforeLoadPromise &&
-                                            that._fragments[id]._beforeLoadPromise &&
-                                            typeof that._fragments[id]._beforeLoadPromise._completed === "function") {
-                                            // called asynchronously if ok
-                                            Log.print(Log.l.trace,
-                                                "from PageControlNavigator (true): _beforeload(" +
-                                                id +
-                                                ") calling _completed()");
-                                            that._fragments[id]._beforeLoadPromise._completed();
-                                            that._fragments[id]._inBeforeLoadPromise = false;
-                                        }
-                                    });
-                                },
-                                function(errorResponse) {
-                                    Log.print(Log.l.trace,
-                                        "from PageControlNavigator: _beforeload(" + id + ") canUnload false!");
-                                    return WinJS.Promise.timeout(0).then(function() {
-                                        if (that._fragments[id]._inBeforeLoadPromise &&
-                                            that._fragments[id]._beforeLoadPromise &&
-                                            typeof that._fragments[id]._beforeLoadPromise.cancel === "function") {
-                                            // called asynchronously if not allowed
-                                            Log.print(Log.l.trace,
-                                                "from PageControlNavigator (false): _beforeload(" +
-                                                id +
-                                                ") calling cancel()");
-                                            that._fragments[id]._beforeLoadPromise.cancel();
-                                            that._fragments[id]._inBeforeLoadPromise = false;
-                                        }
-                                    });
-                                }).then(function() {
-                                // handle waitfor asynchronously called return values
-                                return WinJS.Promise.timeout(120000).then(function() {
-                                    Log.print(Log.l.trace,
-                                        "from PageControlNavigator: _beforeload(" + id + ") canUnload timeout!");
-                                    if (that._fragments &&
-                                        that._fragments[id] &&
-                                        that._fragments[id]._inBeforeLoadPromise &&
-                                        that._fragments[id]._beforeLoadPromise &&
-                                        typeof that._fragments[id]._beforeLoadPromise.cancel === "function") {
-                                        Log.print(Log.l.trace,
-                                            "from PageControlNavigator (timeout): _beforeload(" +
-                                            id +
-                                            ") calling cancel()");
-                                        that._fragments[id]._beforeLoadPromise.cancel();
-                                        that._fragments[id]._inBeforeLoadPromise = false;
-                                    }
-                                });
-                            });
-                    } else {
-                        this._fragments[id]._beforeLoadPromise = new WinJS.Promise.as().then(function(response) {
-                            Log.print(Log.l.trace,
-                                "from PageControlNavigator: _beforeload(" + id + ") done!");
+                        fragment._beforeLoadPromise = fragment._element.firstElementChild.winControl.canUnload(function (response) {
+                            Log.print(Log.l.trace, "from PageControlNavigator: _beforeload(" + id + ") canUnload true!");
                             return WinJS.Promise.timeout(0).then(function() {
-                                if (that._fragments[id]._inBeforeLoadPromise &&
-                                    that._fragments[id]._beforeLoadPromise &&
-                                    typeof that._fragments[id]._beforeLoadPromise._completed === "function") {
+                                if (fragment._inBeforeLoadPromise &&
+                                    fragment._beforeLoadPromise &&
+                                    typeof fragment._beforeLoadPromise._completed === "function") {
                                     // called asynchronously if ok
-                                    Log.print(Log.l.trace,
-                                        "from PageControlNavigator (true): _beforeload(" +
-                                        id +
-                                        ") calling _completed()");
-                                    that._fragments[id]._beforeLoadPromise._completed();
-                                    that._fragments[id]._inBeforeLoadPromise = false;
+                                    Log.print(Log.l.trace, "from PageControlNavigator (true): _beforeload(" + id + ") calling _completed()");
+                                    fragment._beforeLoadPromise._completed();
+                                    fragment._inBeforeLoadPromise = false;
+                                }
+                            });
+                        }, function(errorResponse) {
+                            Log.print(Log.l.trace, "from PageControlNavigator: _beforeload(" + id + ") canUnload false!");
+                            return WinJS.Promise.timeout(0).then(function() {
+                                if (fragment._inBeforeLoadPromise &&
+                                    fragment._beforeLoadPromise &&
+                                    typeof fragment._beforeLoadPromise.cancel === "function") {
+                                    // called asynchronously if not allowed
+                                    Log.print(Log.l.trace, "from PageControlNavigator (false): _beforeload(" + id + ") calling cancel()");
+                                    fragment._beforeLoadPromise.cancel();
+                                    fragment._inBeforeLoadPromise = false;
+                                }
+                            });
+                        }).then(function() {
+                            // handle waitfor asynchronously called return values
+                            fragment._beforeLoadWatchdog = WinJS.Promise.timeout(120000).then(function() {
+                                Log.print(Log.l.info, "from PageControlNavigator: _beforeload(" + id + ") canUnload timeout!");
+                                if (fragment._inBeforeLoadPromise &&
+                                    fragment._beforeLoadPromise &&
+                                    typeof fragment._beforeLoadPromise.cancel === "function") {
+                                    Log.print(Log.l.trace, "from PageControlNavigator (timeout): _beforeload(" + id + ") calling cancel()");
+                                    fragment._beforeLoadPromise.cancel();
+                                    fragment._inBeforeLoadPromise = false;
+                                }
+                            });
+                            return fragment._beforeLoadWatchdog;
+                        });
+                    } else {
+                        fragment._beforeLoadPromise = new WinJS.Promise.as().then(function (response) {
+                            Log.print(Log.l.trace, "from PageControlNavigator: _beforeload(" + id + ") done!");
+                            return WinJS.Promise.timeout(0).then(function() {
+                                if (fragment._inBeforeLoadPromise &&
+                                    fragment._beforeLoadPromise &&
+                                    typeof fragment._beforeLoadPromise._completed === "function") {
+                                    // called asynchronously if ok
+                                    Log.print(Log.l.trace, "from PageControlNavigator (true): _beforeload(" + id + ") calling _completed()");
+                                    fragment._beforeLoadPromise._completed();
+                                    fragment._inBeforeLoadPromise = false;
                                 }
                             });
                         });
                     }
-                    Log.print(Log.l.trace, "calling setPromise");
-                    args.detail.setPromise(this._fragments[id]._beforeLoadPromise);
                     Log.ret(Log.l.trace, "");
+                    return fragment._beforeLoadPromise;
                 },
 
                 // Responds to navigation by adding new fragments to the DOM of current page.
@@ -992,14 +1035,19 @@
                     function cleanupOldElement(oldElement) {
                         Log.call(Log.l.trace, "Application.PageControlNavigator.");
                         // Cleanup and remove previous element
-                        if (oldElement.winControl) {
-                            if (oldElement.winControl.unload) {
-                                oldElement.winControl.unload();
+                        if (oldElement) {
+                            if (oldElement.winControl) {
+                                if (oldElement.winControl.unload) {
+                                    oldElement.winControl.unload();
+                                }
+                                if (oldElement.winControl.controller) {
+                                    oldElement.winControl.controller = null;
+                                }
+                                oldElement.winControl.dispose();
                             }
-                            oldElement.winControl.dispose();
+                            oldElement.parentNode.removeChild(oldElement);
+                            oldElement.innerHTML = "";
                         }
-                        oldElement.parentNode.removeChild(oldElement);
-                        oldElement.innerHTML = "";
                         Log.ret(Log.l.trace);
                     }
                     function cleanup() {
@@ -1010,7 +1058,9 @@
                         }
                         Log.ret(Log.l.trace);
                     }
-                    if (this._fragments[id]._lastNavigationPromise) {
+                    if (this._fragments[id]._lastNavigationPromise && 
+                        typeof this._fragments[id]._lastNavigationPromise.cancel === "function") {
+                        Log.print(Log.l.trace, "cancel lastNavigationPromise of fragment[" + id + "]");
                         this._fragments[id]._lastNavigationPromise.cancel();
                     }
                     this._fragments[id]._lastNavigationPromise = WinJS.Promise.as().then(function() {
@@ -1072,10 +1122,9 @@
                         fragmentElement.style.visibility = "";
                         var fragmentAnimationElements = this._getAnimationElements(0, fragmentElement);
                         if (fragmentAnimationElements) {
+                            var that = this;
                             ret = WinJS.UI.Animation.enterContent(fragmentAnimationElements).then(function () {
-                                if (fragmentElement.winControl) {
-                                    fragmentElement.winControl.updateLayout.call(fragmentElement.winControl, fragmentElement);
-                                }
+                                return that.elementUpdateLayout(fragmentElement);
                             });
                         }
                     }
@@ -1092,7 +1141,6 @@
                     var element = document.createElement("div");
                     element.setAttribute("dir", window.getComputedStyle(this._fragments[id]._element, null).direction);
                     element.setAttribute("style", "width: 100%; height: 100%; visibility: hidden; overflow-x: hidden; overflow-y: hidden;");
-
                     Log.ret(Log.l.trace, "");
                     return element;
                 },
@@ -1127,10 +1175,8 @@
                     if (keys && keys.length > 0) {
                         for (var j = 0; j < keys.length; j++) {
                             var fragmentElement = this.getFragmentElement(keys[j]);
-                            if (fragmentElement && fragmentElement.winControl) {
-                                Log.print(Log.l.trace, "calling updateLayout of fragment id=" + keys[j]);
-                                fragmentElement.winControl.updateLayout.call(fragmentElement.winControl, fragmentElement);
-                            }
+                            Log.print(Log.l.trace, "calling updateLayout of fragment id=" + keys[j]);
+                            this.elementUpdateLayout(fragmentElement);
                         }
                     }
                     Log.ret(Log.l.u1, "");
@@ -1235,13 +1281,15 @@
                 },
 
                 _navigated: function () {
-                    Log.call(Log.l.trace, "Application.PageControlNavigator.");
+                    Log.call(Log.l.trace, "Application.PageControlNavigator.", "removeBackStack=" + this._removeBackStack);
                     var animationDistanceX;
                     var animationDistanceY;
                     var animationOptions;
                     var iPrev = -1;
                     var iCur = -1;
                     var isGroup = false;
+                    var removeBackStack = this._removeBackStack;
+                    this._removeBackStack = false;
                     var navBarPos = this._navBarPos;
                     if (navBarPos) {
                         iPrev = navBarPos.iPrev;
@@ -1251,21 +1299,25 @@
                     var that = this;
 
                     function cleanup() {
-                        if (that.cleanupPrevPage) {
+                        Log.call(Log.l.trace, "Application.PageControlNavigator._navigated.");
+                        if (!that.cleanupPrevPage) {
+                            Log.print(Log.l.trace, "cleanupPrevPage already called!");
+                        } else {
                             that.cleanupPrevPage();
                             that.cleanupPrevPage = null;
                         }
                         that._nextPage = null;
+                        Log.ret(Log.l.trace, "");
                     }
-
                     var lastPage = this._lastPage;
                     this._lastPage = nav.location;
                     if (this._nextPageElement && this._nextPageElement.style) {
                         this._nextPageElement.style.visibility = "";
                     }
                     if (this._nextMaster === this._lastMaster) {
-                        Log.print(Log.l.trace, "extra ignored _lastMaster=" + this._lastMaster);
+                        Log.print(Log.l.trace, "master not changed: _lastMaster=" + this._lastMaster);
                     } else {
+                        Log.print(Log.l.trace, "master changed: _nextMaster=" + this._nextMaster + " _lastMaster=" + this._lastMaster);
                         this._prevAppBarHidden = null;
                         this._lastMaster = this._nextMaster;
                         if (this._nextMaster && !this._masterHidden) {
@@ -1279,28 +1331,33 @@
                         }
                     }
                     if (lastPage === Application.initPage) {
+                        Log.print(Log.l.trace, "calling cleanup first in case of lastPage === Application.initPage=" + Application.initPage);
                         cleanup();
-                        WinJS.UI.Animation.fadeIn(this._getAnimationElements(0, this._nextPageElement)).then(function() {
+                        Log.print(Log.l.u1, "calling Animation.fadeIn...");
+                        WinJS.UI.Animation.fadeIn(this._getAnimationElements(0, this._nextPageElement)).then(function () {
                             that.resizePageElement(that.pageElement);
                         });
                     } else if (NavigationBar.orientation !== "horizontal" ||
                         iPrev < 0 || iCur < 0 || iPrev === iCur ||
                         nav.location === Application.startPage) {
+                        Log.print(Log.l.u1, "calling Animation.enterPage...");
                         WinJS.UI.Animation.enterPage(this._getAnimationElements(0, this._nextPageElement)).then(function () {
                             cleanup();
                             that.resizePageElement(that.pageElement);
-                        });
+                        }, cleanup);
                     } else if (isGroup) {
                         if (iPrev < iCur) {
+                            Log.print(Log.l.u1, "calling Animation.continuumBackwardIn...");
                             WinJS.UI.Animation.continuumBackwardIn(this._nextPageElement, this._getAnimationElements(0, this._nextPageElement)).then(function () {
                                 cleanup();
                                 that.resizePageElement(that.pageElement);
-                            });
+                            }, cleanup);
                         } else {
+                            Log.print(Log.l.u1, "calling Animation.continuumForwardIn...");
                             WinJS.UI.Animation.continuumForwardIn(this._nextPageElement, this._getAnimationElements(0, this._nextPageElement)).then(function () {
                                 cleanup();
                                 that.resizePageElement(that.pageElement);
-                            });
+                            }, cleanup);
                         }
                     } else {
                         if (iPrev < iCur) {
@@ -1315,31 +1372,24 @@
                         } else {
                             animationOptions = { top: "0px", left: animationDistanceX.toString() + "px" };
                         }
-                        WinJS.UI.Animation.enterContent(
-                            this._getAnimationElements(0, this._nextPageElement),
-                            animationOptions,
-                            { mechanism: "transition" }).then(function () {
-                                cleanup();
-                                that.resizePageElement(that.pageElement);
-                            });
+                        Log.print(Log.l.u1, "calling Animation.enterContent...");
+                        WinJS.UI.Animation.enterContent(this._getAnimationElements(0, this._nextPageElement), animationOptions, { mechanism: "transition" }).then(function () {
+                            cleanup();
+                            that.resizePageElement(that.pageElement);
+                        }, cleanup);
                     }
-                    WinJS.Promise.timeout(0).then(function () {
-                        if (typeof AppBar._disableCommandFromValue === "function" &&
-                            AppBar._disableHandlers &&
-                            AppBar._disableHandlers.length > 0) {
-                            var newValues = [];
-                            for (var i = 0; i < AppBar._disableHandlers.length; i++) {
-                                var curHandler = AppBar._disableHandlers[i];
-                                if (typeof curHandler === "function") {
-                                    newValues.push(curHandler());
-                                } else {
-                                    newValues.push(false);
-                                }
+                    if (removeBackStack) {
+                        WinJS.Promise.timeout(0).then(function postNavigated() {
+                            Log.call(Log.l.u1, "Application.PageControlNavigator._navigated.");
+                            if (WinJS.Navigation.history &&
+                                WinJS.Navigation.history.backStack) {
+                                Log.print(Log.l.trace, "remove previous page from navigation history!");
+                                WinJS.Navigation.history.backStack.pop();
                             }
-                            AppBar._disableCommandFromValue(newValues);
-                        }
-                    });
-                    Log.ret(Log.l.trace);
+                            Log.ret(Log.l.u1, "");
+                        });
+                    }
+                    Log.ret(Log.l.trace, "");
                 },
 
                 // Checks for valid state of current page before navigation via canUnload() function
@@ -1378,7 +1428,18 @@
                             }
                         }
                     }
-                    this._beforeNavigatePromise = WinJS.Promise.as();
+                    if (this._beforeNavigateWatchdog) {
+                        if (typeof this._beforeNavigateWatchdog.cancel === "function") {
+                            Log.print(Log.l.trace, "cancel previous beforeNavigateWatchdog promise");
+                            this._beforeNavigateWatchdog.cancel();
+                        }
+                        this._beforeNavigateWatchdog = null;
+                    }
+                    if (this._beforeNavigatePromise &&
+                        typeof this._beforeNavigatePromise.cancel === "function") {
+                        Log.print(Log.l.trace, "cancel previous beforeNavigatePromise");
+                        this._beforeNavigatePromise.cancel();
+                    }
                     this._inBeforeNavigatePromise = true;
                     var that = this;
                     if (isDisabled) {
@@ -1390,7 +1451,6 @@
                                     typeof that._beforeNavigatePromise.cancel === "function") {
                                     // called asynchronously if not allowed
                                     that._beforeNavigatePromise.cancel();
-                                    //that._beforeNavigatePromise = null;
                                     that._inBeforeNavigatePromise = false;
                                     if (typeof that._syncNavigationBar === "function") {
                                         that._syncNavigationBar();
@@ -1399,13 +1459,15 @@
                             });
                         });
                     } else {
-                        var checkCanUnload = function() {
-                            if (!(pageId === "register" || (pageId === "account" && prevPageId === "login")) &&
+                        var checkCanUnload = function () {
+                            var ret;
+                            Log.call(Log.l.trace, "Application.PageControlNavigator._beforenavigate.");
+                            if (!(pageId === "register" || pageId === "recover" || (pageId === "account" && prevPageId === "login")) &&
                                 that._element &&
                                 that._element.firstElementChild &&
                                 that._element.firstElementChild.winControl &&
                                 typeof that._element.firstElementChild.winControl.canUnload === "function") {
-                                return that._element.firstElementChild.winControl.canUnload(function(response) {
+                                ret = that._element.firstElementChild.winControl.canUnload(function(response) {
                                     Log.print(Log.l.trace, "from PageControlNavigator: _beforenavigate canUnload true!");
                                     return WinJS.Promise.timeout(0).then(function() {
                                         if (that._inBeforeNavigatePromise &&
@@ -1414,7 +1476,6 @@
                                             // called asynchronously if ok
                                             Log.print(Log.l.trace, "from PageControlNavigator (true): _beforenavigate calling _completed()");
                                             that._beforeNavigatePromise._completed();
-                                            //that._beforeNavigatePromise = null;
                                             that._inBeforeNavigatePromise = false;
                                         }
                                     });
@@ -1427,32 +1488,31 @@
                                             // called asynchronously if not allowed
                                             Log.print(Log.l.trace, "from PageControlNavigator (false): _beforenavigate calling cancel()");
                                             that._beforeNavigatePromise.cancel();
-                                            //that._beforeNavigatePromise = null;
                                             that._inBeforeNavigatePromise = false;
                                             if (typeof that._syncNavigationBar === "function") {
                                                 that._syncNavigationBar();
                                             }
                                         }
                                     });
-                                }).then(function() {
+                                }).then(function () {
                                     // handle waitfor asynchronously called return values
-                                    return WinJS.Promise.timeout(120000).then(function() {
-                                        Log.print(Log.l.trace, "from PageControlNavigator: _beforenavigate canUnload timeout!");
+                                    that._beforeNavigateWatchdog = WinJS.Promise.timeout(120000).then(function () {
+                                        Log.print(Log.l.info, "from PageControlNavigator: _beforenavigate canUnload timeout!");
                                         if (that._inBeforeNavigatePromise &&
                                             that._beforeNavigatePromise &&
                                             typeof that._beforeNavigatePromise.cancel === "function") {
                                             Log.print(Log.l.trace, "from PageControlNavigator (timeout): _beforenavigate calling cancel()");
                                             that._beforeNavigatePromise.cancel();
-                                            //that._beforeNavigatePromise = null;
                                             that._inBeforeNavigatePromise = false;
                                             if (typeof that._syncNavigationBar === "function") {
                                                 that._syncNavigationBar();
                                             }
                                         }
                                     });
+                                    return that._beforeNavigateWatchdog;
                                 });
                             } else {
-                                return new WinJS.Promise.as().then(function() {
+                                ret = new WinJS.Promise.as().then(function() {
                                     Log.print(Log.l.trace, "from PageControlNavigator: _beforenavigate done!");
                                     return WinJS.Promise.timeout(0).then(function () {
                                         if (that._inBeforeNavigatePromise &&
@@ -1461,12 +1521,13 @@
                                             // called asynchronously if ok
                                             Log.print(Log.l.trace, "from PageControlNavigator (true): _beforenavigate calling _completed()");
                                             that._beforeNavigatePromise._completed();
-                                            //that._beforeNavigatePromise = null;
                                             that._inBeforeNavigatePromise = false;
                                         }
                                     });
                                 });
                             }
+                            Log.ret(Log.l.trace, "");
+                            return ret;
                         }
                         var keys = null;
                         if (this._fragments) {
@@ -1482,60 +1543,21 @@
                                 }
                             }
                         }
-                        if (keys && keys.length > 0) {
+                        var countFragments = keys && keys.length;
+                        Log.print(Log.l.trace, "countFragments=" + countFragments);
+                        if (countFragments > 0) {
+                            var fragmentPromises = {};
+                            for (var j = 0; j < countFragments; j++) {
+                                var id = keys[j];
+                                Log.print(Log.l.trace, "adding beforeLoad promise of fragment[" + id + "]");
+                                fragmentPromises[id] = that._beforeload(id);
+                            }
                             this._beforeNavigatePromise = new WinJS.Promise.as().then(function () {
-                                var fragmentId;
-                                var doneFragments = 0;
-                                for (var j=0; j < keys.length; j++) {
-                                    fragmentId = keys[j];
-                                    Log.print(Log.l.trace, "calling _beforeload(" + fragmentId + ")");
-                                    var detail = {
-                                        element: that._fragments[fragmentId]._element,
-                                        setPromise: function(promise) {
-                                            return promise.then(function (response) {
-                                                doneFragments++;
-                                                Log.print(Log.l.trace, "_beforeload success! doneFragments=" + doneFragments + "(countFragments=" + keys.length + ")");
-                                                if (doneFragments === keys.length) {
-                                                    checkCanUnload();
-                                                }
-                                            }, function(errorResponse) {
-                                                Log.print(Log.l.trace, "_beforeload error!");
-                                                WinJS.Promise.timeout(0).then(function () {
-                                                    if (that._inBeforeNavigatePromise &&
-                                                        that._beforeNavigatePromise &&
-                                                        typeof that._beforeNavigatePromise.cancel === "function") {
-                                                        // called asynchronously if not allowed
-                                                        Log.print(Log.l.trace, "from PageControlNavigator (false): _beforenavigate calling cancel()");
-                                                        that._beforeNavigatePromise.cancel();
-                                                        //that._beforeNavigatePromise = null;
-                                                        that._inBeforeNavigatePromise = false;
-                                                        if (typeof that._syncNavigationBar === "function") {
-                                                            that._syncNavigationBar();
-                                                        }
-                                                    }
-                                                });
-                                            });
-                                        }
-                                    }
-                                    that._beforeload({ detail: detail });
-                                }
-                                return WinJS.Promise.as();
+                                Log.print(Log.l.trace, "from _beforenavigate: waiting for fulfillment of " + countFragments + " fragment promises...");
+                                return WinJS.Promise.join(fragmentPromises);
                             }).then(function () {
-                                // handle waitfor asynchronously called return values
-                                return WinJS.Promise.timeout(120000).then(function () {
-                                    Log.print(Log.l.trace, "from PageControlNavigator: _beforenavigate canUnload timeout!");
-                                    if (that._inBeforeNavigatePromise &&
-                                        that._beforeNavigatePromise &&
-                                        typeof that._beforeNavigatePromise.cancel === "function") {
-                                        Log.print(Log.l.trace, "from PageControlNavigator (timeout): _beforenavigate calling cancel()");
-                                        that._beforeNavigatePromise.cancel();
-                                        //that._beforeNavigatePromise = null;
-                                        that._inBeforeNavigatePromise = false;
-                                        if (typeof that._syncNavigationBar === "function") {
-                                            that._syncNavigationBar();
-                                        }
-                                    }
-                                });
+                                Log.print(Log.l.trace, "from _beforenavigate: all fragment promises fulfilled...");
+                                return checkCanUnload();
                             });
                         } else {
                             this._beforeNavigatePromise = checkCanUnload();
@@ -1559,9 +1581,12 @@
                     this._nextPageElement = null;
                     this._nextPage = args.detail.location;
 
-                    //var prevPageElement = this.pageElement;
-                    //var prevAnimationElements = this._getAnimationElements();
-                    //var lastPage = this._lastPage;
+                    var prevPageElement = this.pageElement;
+                    var lastPage = this._lastPage;
+                    var prevAnimationElements = null;
+                    if (AppData._persistentStates.showAppBkg) {
+                        prevAnimationElements = this._getAnimationElements();
+                    }
 
                     var prevFragments = this._fragments;
 
@@ -1574,17 +1599,22 @@
                     function cleanupOldElement(oldElement) {
                         Log.call(Log.l.trace, "Application.PageControlNavigator.");
                         // Cleanup and remove previous element
-                        if (oldElement.winControl) {
-                            if (oldElement.winControl.unload) {
-                                oldElement.winControl.unload();
+                        if (oldElement) {
+                            if (oldElement.winControl) {
+                                if (oldElement.winControl.unload) {
+                                    oldElement.winControl.unload();
+                                }
+                                if (oldElement.winControl.controller) {
+                                    oldElement.winControl.controller = null;
+                                }
+                                oldElement.winControl.dispose();
                             }
-                            oldElement.winControl.dispose();
+                            oldElement.parentNode.removeChild(oldElement);
+                            oldElement.innerHTML = "";
                         }
-                        oldElement.parentNode.removeChild(oldElement);
-                        oldElement.innerHTML = "";
                         Log.ret(Log.l.trace);
                     }
-                    var cleanup = function () {
+                    this.cleanupPrevPage = function () {
                         Log.call(Log.l.trace, "Application.PageControlNavigator.");
                         while (that._element.childElementCount > 1) {
                             if (prevFragments) {
@@ -1592,20 +1622,43 @@
                                 for (propertyName in prevFragments) {
                                     if (prevFragments.hasOwnProperty(propertyName)) {
                                         Log.print(Log.l.trace, "cleanup fragments[" + propertyName + "]");
+                                        if (prevFragments[propertyName]._lastNavigationPromise) {
+                                            if (typeof prevFragments[propertyName]._lastNavigationPromise.cancel === "function") {
+                                                Log.print(Log.l.trace, "cancel lastNavigationPromise of fragments[" + propertyName + "]");
+                                                prevFragments[propertyName]._lastNavigationPromise.cancel();
+                                            }
+                                            prevFragments[propertyName]._lastNavigationPromise = null;
+                                        }
+                                        if (prevFragments[propertyName]._beforeLoadWatchdog) {
+                                            if (typeof prevFragments[propertyName]._beforeLoadWatchdog.cancel === "function") {
+                                                Log.print(Log.l.trace, "cancel beforeLoadWatchdog of fragments[" + propertyName + "]");
+                                                prevFragments[propertyName]._beforeLoadWatchdog.cancel();
+                                            }
+                                            prevFragments[propertyName]._beforeLoadWatchdog = null;
+                                        }
+                                        if (prevFragments[propertyName]._beforeLoadPromise) {
+                                            if (prevFragments[propertyName]._inBeforeLoadPromise &&
+                                                typeof prevFragments[propertyName]._beforeLoadPromise.cancel === "function") {
+                                                Log.print(Log.l.trace, "cancel beforeLoadPromise of fragments[" + propertyName + "]");
+                                                prevFragments[propertyName]._beforeLoadPromise.cancel();
+                                            }
+                                            prevFragments[propertyName]._beforeLoadPromise = null;
+                                        }
                                         if (prevFragments[propertyName]._element) {
                                             cleanupOldElement(prevFragments[propertyName]._element.firstElementChild);
-                                            delete prevFragments[propertyName];
                                         }
+                                        delete prevFragments[propertyName];
                                     }
                                 }
                             }
                             cleanupOldElement(that._element.firstElementChild);
                         }
                         Log.ret(Log.l.trace);
-                    }
-                    this.cleanupPrevPage = cleanup;
+                    };
 
-                    if (this._lastNavigationPromise) {
+                    if (this._lastNavigationPromise &&
+                        typeof this._lastNavigationPromise.cancel === "function") {
+                        Log.print(Log.l.trace, "cancel lastNavigationPromise");
                         this._lastNavigationPromise.cancel();
                     }
                     var i;
@@ -1646,11 +1699,7 @@
                             return WinJS.Promise.as();
                         }
                     }).then(function() {
-                        var promise = that.resizeMasterElement(newMasterElement);
-                        if (!promise) {
-                            promise = WinJS.Promise.as();
-                        }
-                        return promise;
+                        return that.resizeMasterElement(newMasterElement) || WinJS.Promise.as();
                     }).then(function() {
                         if (prevMasterAnimationElements && prevMasterAnimationElements.length > 0) {
                             Log.print(Log.l.trace, "PageControlNavigator: exit previous master page");
@@ -1674,13 +1723,15 @@
                         AppBar.notifyModified = false;
                         Log.print(Log.l.trace, "PageControlNavigator: calling _navigating render page");
                         return WinJS.UI.Pages.render(args.detail.location, that._nextPageElement, args.detail.state);
-                    }).then(function() {
-                        var promise = that.resizePageElement(that._nextPageElement);
-                        if (!promise) {
-                            promise = WinJS.Promise.as();
+                    }).then(function () {
+                        if (that.resizeSplitView() && newMasterElement) {
+                            return that.resizeMasterElement(newMasterElement) || WinJS.Promise.as();
+                        } else {
+                            return WinJS.Promise.as();
                         }
-                        return promise;
-                    /*}).then(function () {
+                    }).then(function () {
+                        return that.resizePageElement(that._nextPageElement) || WinJS.Promise.as();
+                    }).then(function () {
                         if (prevAnimationElements && prevAnimationElements.length > 0) {
                             var nextPage;
                             var iPrev = -1;
@@ -1757,17 +1808,30 @@
                                     animationOptions);
                             }
                         } else {
-
                             Log.print(Log.l.trace, "from PageControlNavigator: calling no exit animation");
                             return WinJS.Promise.as();
                         }
-                         */
-                    }).then(function() {
-                        // do nothing in case of success
-                    }, cleanup);
-
+                    }, function() {
+                        that.cleanupPrevPage();
+                        that.cleanupPrevPage = null;
+                    });
                     args.detail.setPromise(this._lastNavigationPromise);
                     Log.ret(Log.l.trace, "");
+                },
+                
+                // Responds to orientationchange events
+                // on the currently loaded page.
+                _orientationchanged: function (args) {
+                    Log.call(Log.l.u1, "PageControlNavigator.");
+                    // set orientation here
+                    NavigationBar.updateOrientation();
+
+                    // call resized later
+                    var that = this;
+                    WinJS.Promise.timeout(0).then(function() {
+                        that._resized(args);
+                    });
+                    Log.ret(Log.l.u1);
                 },
 
                 // Responds to resize events and call the updateLayout function
@@ -1781,6 +1845,7 @@
                  */
                 _resized: function (args) {
                     Log.call(Log.l.u1, "PageControlNavigator.");
+                    // App background
                     var appBkg = document.querySelector(".app-bkg");
                     if (appBkg) {
                         var width = document.body.clientWidth;
@@ -1788,9 +1853,6 @@
                         appBkg.style.width = width.toString() + "px";
                         appBkg.style.height = height.toString() + "px";
                     }
-                    // in case of no page loaded, set orientation here
-                    NavigationBar.updateOrientation();
-
                     // AppHeader element
                     var headerhost = document.querySelector("#headerhost");
                     if (headerhost) {
@@ -1800,18 +1862,21 @@
                             pageControl.updateLayout.call(pageControl, pageElement);
                         }
                     }
-
-                    // Navigation bar
-                    if (NavigationBar.ListView) {
-                        NavigationBar.ListView.updateLayout();
-                    }
-
+                    // in case of no page loaded, set orientation here
+                    NavigationBar.updateOrientation();
                     // current size of page
-                    if (Application.navigator &&
-                        (Application.navigator.masterElement || Application.navigator.pageElement)) {
+                    if (Application.navigator) {
+                        // Resize splitView
+                        Application.navigator.resizeSplitView();
+                        // Resize Navigation bar
+                        if (NavigationBar.ListView) {
+                            NavigationBar.ListView.updateLayout();
+                        }
+                        // Resize master element
                         if (Application.navigator.masterElement) {
                             Application.navigator.resizeMasterElement(Application.navigator.masterElement);
                         }
+                        // Resize page element
                         if (Application.navigator.pageElement) {
                             Application.navigator.resizePageElement(Application.navigator.pageElement);
                         }
@@ -1907,11 +1972,11 @@
                     } else {
                         NavigationBar._splitViewDisplayMode = null;
                     }
-                    var splitView = document.querySelector("#root-split-view");
-                    if (splitView) {
-                        splitView.addEventListener("beforeopen", NavigationBar.handleSplitViewBeforeOpen);
-                        splitView.addEventListener("afteropen", NavigationBar.handleSplitViewAfterOpen);
-                        splitView.addEventListener("afterclose", NavigationBar.handleSplitViewAfterClose);
+                    var splitViewRoot = Application.navigator && Application.navigator.splitViewRoot;
+                    if (splitViewRoot) {
+                        splitViewRoot.addEventListener("beforeopen", NavigationBar.handleSplitViewBeforeOpen);
+                        splitViewRoot.addEventListener("afteropen", NavigationBar.handleSplitViewAfterOpen);
+                        splitViewRoot.addEventListener("afterclose", NavigationBar.handleSplitViewAfterClose);
                     }
                     NavigationBar.groups = navigationBarGroups;
                 }
@@ -2007,212 +2072,198 @@
                     Log.call(Log.l.u1, "NavigationBar.ListViewClass.");
                     var titlearea = null;
                     var titleHeight = 0;
-                    var width = window.innerWidth;
-                    var height = window.innerHeight;
-                    Log.print(Log.l.u1, "window: width=" + width + " height=" + height);
-                    var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
-                    var listControl = NavigationBar.ListView && NavigationBar.ListView.listControl;
-                    if (element && listControl) {
-                        // current window dimension
-                        if (this._listOrientation === "vertical") {
-                            // set list height to window height
-                            if (element.style) {
-                                if (AppBar.barElement) {
-                                    height -= AppBar.barElement.clientHeight;
-                                }
-                                var strHeight = height.toString() + "px";
-                                if (element.parentNode &&
-                                    element.parentNode.style) {
-                                    if (element.parentNode.style.height === strHeight) {
-                                        Log.print(Log.l.u2, "listView: height=" + strHeight + " extra ignored");
-                                    } else {
-                                        element.parentNode.style.height = strHeight;
+
+                    if (Application.navigator) {
+                        var splitViewRoot = Application.navigator.splitViewRoot;
+                        if (splitViewRoot) {
+                            var splitViewContent = Application.navigator.splitViewContent;
+                            var width = splitViewContent.clientWidth;
+                            var height = splitViewContent.clientHeight;
+                            Log.print(Log.l.u1, "splitViewContent: width=" + width + " height=" + height);
+
+                            var splitViewPane = splitViewRoot.querySelector(".win-splitview-pane");
+                            if (splitViewPane && splitViewPane.style) {
+                                splitViewPane.style.height = splitViewRoot.clientHeight.toString() + "px";
+                            }
+                            var splitViewControl = splitViewRoot.winControl;
+                            if (splitViewControl) {
+                                var openedDisplayMode;
+                                var closedDisplayMode;
+                                if (NavigationBar._splitViewDisplayMode &&
+                                    NavigationBar._splitViewDisplayMode.opened &&
+                                    NavigationBar._splitViewDisplayMode.closed) {
+                                    openedDisplayMode = NavigationBar._splitViewDisplayMode.opened;
+                                    closedDisplayMode = NavigationBar._splitViewDisplayMode.closed;
+                                    if (!NavigationBar._splitViewClassSet ||
+                                        openedDisplayMode !== splitViewControl.openedDisplayMode ||
+                                        closedDisplayMode !== splitViewControl.closedDisplayMode) {
+                                        if (openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay && window.innerWidth <= 499) {
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-full");
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-tablet");
+                                            WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-mobile");
+                                        } else if (openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-full");
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-mobile");
+                                            WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-tablet");
+                                        } else {
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-mobile");
+                                            WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-tablet");
+                                            WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-full");
+                                        }
+                                        NavigationBar._splitViewClassSet = true;
+                                    }
+                                } else if (window.innerWidth <= 499) {
+                                    openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.overlay;
+                                    closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.none;
+                                    if (!NavigationBar._splitViewClassSet ||
+                                        openedDisplayMode !== splitViewControl.openedDisplayMode ||
+                                        closedDisplayMode !== splitViewControl.closedDisplayMode) {
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-full");
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-tablet");
+                                        WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-mobile");
+                                        NavigationBar._splitViewClassSet = true;
+                                    }
+                                } else if (window.innerWidth <= 1149) {
+                                    openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.overlay;
+                                    closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.inline;
+                                    if (!NavigationBar._splitViewClassSet ||
+                                        openedDisplayMode !== splitViewControl.openedDisplayMode ||
+                                        closedDisplayMode !== splitViewControl.closedDisplayMode) {
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-full");
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-mobile");
+                                        WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-tablet");
+                                        NavigationBar._splitViewClassSet = true;
+                                    }
+                                } else {
+                                    openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.inline;
+                                    closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.inline;
+                                    if (!NavigationBar._splitViewClassSet ||
+                                        openedDisplayMode !== splitViewControl.openedDisplayMode ||
+                                        closedDisplayMode !== splitViewControl.closedDisplayMode) {
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-mobile");
+                                        WinJS.Utilities.removeClass(splitViewRoot, "rootsplitview-tablet");
+                                        WinJS.Utilities.addClass(splitViewRoot, "rootsplitview-full");
+                                        NavigationBar._splitViewClassSet = true;
                                     }
                                 }
-                                titlearea = document.querySelector(".titlearea");
-                                if (titlearea && titlearea.parentNode) {
-                                    titleHeight = titlearea.parentNode.clientHeight;
+                                if (closedDisplayMode !== splitViewControl.closedDisplayMode) {
+                                    splitViewControl.closedDisplayMode = closedDisplayMode;
                                 }
-                                height -= titleHeight;
-                                strHeight = height.toString() + "px";
-                                if (element.style.height !== strHeight) {
-                                    element.style.height = strHeight;
+                                if (openedDisplayMode !== splitViewControl.openedDisplayMode) {
+                                    splitViewControl.openedDisplayMode = openedDisplayMode;
                                 }
-
                             }
-                        } else {
-                            // SplitView element
-                            var rootSplitView = document.querySelector("#root-split-view");
-                            if (rootSplitView) {
-                                var rootSplitViewControl = rootSplitView.winControl;
-                                if (rootSplitViewControl &&
-                                    (rootSplitViewControl.paneOpened &&
-                                     rootSplitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline ||
-                                     !rootSplitViewControl.paneOpened &&
-                                     rootSplitViewControl.closedDisplayMode === WinJS.UI.SplitView.ClosedDisplayMode.inline)) {
-                                    var splitViewPane = document.querySelector("#root-split-view-pane");
-                                    if (splitViewPane && splitViewPane.clientWidth > 0) {
-                                        width -= splitViewPane.clientWidth;
+                            var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
+                            var listControl = NavigationBar.ListView && NavigationBar.ListView.listControl;
+                            if (element && listControl) {
+                                // current window dimension
+                                if (this._listOrientation === "vertical") {
+                                    // set list height to window height
+                                    if (element.style) {
+                                        var strHeight = height.toString() + "px";
+                                        if (element.parentNode && element.parentNode.style) {
+                                            element.parentNode.style.height = strHeight;
+                                        }
+                                        strHeight = height.toString() + "px";
+                                        element.style.height = strHeight;
                                     }
-                                }
-                            }
-                            var left = 0;
-                            if (Application.navigator && Application.navigator._nextMaster && !Application.navigator._masterHidden) {
-                                left += Application.navigator.masterElement.clientWidth;// + 2;
-                                width -= Application.navigator.masterElement.clientWidth;// + 2;
-                            }
-
-                            // set list width to window width, disable horizontal scrolling
-                            var strLeft = left ? left.toString() + "px" : "0";
-                            var strWidth = width.toString() + "px";
-                            if (element.parentNode && element.parentNode.style) {
-                                if (element.parentNode.style.left === strLeft) {
-                                    Log.print(Log.l.u2, "listView: left=" + strLeft + " extra ignored");
                                 } else {
-                                    element.parentNode.style.left = strLeft;
-                                }
-                                if (element.parentNode.style.top === "0") {
-                                    Log.print(Log.l.u2, "listView: top=0 extra ignored");
-                                } else {
-                                    element.parentNode.style.top = "0";
-                                }
-                                if (element.parentNode.style.width === strWidth) {
-                                    Log.print(Log.l.u2, "listView: width=" + strWidth + " extra ignored");
-                                } else {
-                                    element.parentNode.style.width = strWidth;
-                                }
-                            }
-                            if (listControl.loadingState === "complete") {
-                                var surface = element.querySelector(".win-surface");
-                                if (surface &&
-                                    surface.style &&
-                                    surface.style.width !== strWidth) {
-                                    surface.style.width = strWidth;
-                                }
-                                // ListView container elements used in filled ListView
-                                var intemscontainer = element.querySelector(".win-itemscontainer");
-                                if (intemscontainer &&
-                                    intemscontainer.style &&
-                                    intemscontainer.style.width !== strWidth) {
-                                    intemscontainer.style.width = strWidth;
-                                }
-
-                                // calculate width for each cell
-                                var containers = element.querySelectorAll(".win-container");
-                                if (containers && containers.length === NavigationBar.data.length) {
-                                    var totalLen = 0;
-                                    var i;
-                                    var item;
-                                    for (i = 0; i < NavigationBar.data.length; i++) {
-                                        item = NavigationBar.data.getAt(i);
-                                        if (item) {
-                                            totalLen = totalLen + item.width;
+                                    /*
+                                    // SplitView element
+                                    if (splitViewControl &&
+                                        (splitViewControl.paneOpened &&
+                                         splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline ||
+                                         !splitViewControl.paneOpened &&
+                                         splitViewControl.closedDisplayMode === WinJS.UI.SplitView.ClosedDisplayMode.inline)) {
+                                        var splitViewPane = Application.navigator.splitViewPane;
+                                        if (splitViewPane && splitViewPane.clientWidth > 0) {
+                                            width -= splitViewPane.clientWidth;
                                         }
                                     }
-                                    for (i = 0; i < NavigationBar.data.length; i++) {
-                                        item = NavigationBar.data.getAt(i);
-                                        if (item) {
-                                            var widthNavigationbarItem;
-                                            if (totalLen > 0) {
-                                                widthNavigationbarItem = (width * item.width) / totalLen;
-                                            } else {
-                                                widthNavigationbarItem = width / item.length;
+                                     */
+                                    var left = 0;
+                                    if (Application.navigator._nextMaster && !Application.navigator._masterHidden) {
+                                        left += Application.navigator.masterElement.clientWidth;
+                                        width -= Application.navigator.masterElement.clientWidth;
+                                    }
+
+                                    // set list width to window width, disable horizontal scrolling
+                                    var strLeft = left ? left.toString() + "px" : "0";
+                                    var strWidth = width.toString() + "px";
+                                    if (element.parentNode && element.parentNode.style) {
+                                        element.parentNode.style.left = strLeft;
+                                        element.parentNode.style.top = "0";
+                                        element.parentNode.style.width = strWidth;
+                                    }
+                                    if (listControl.loadingState === "complete") {
+                                        // calculate width for each cell
+                                        var containers = element.querySelectorAll(".win-container");
+                                        if (containers && containers.length === NavigationBar.data.length) {
+                                            var fontWidth = width > 499 ? 10 : 7;
+                                            var totalLen = 0;
+                                            var maxLen = 0;
+                                            var i;
+                                            var item;
+                                            for (i = 0; i < NavigationBar.data.length; i++) {
+                                                item = NavigationBar.data.getAt(i);
+                                                if (item) {
+                                                    totalLen = totalLen + item.width;
+                                                    if (item.width > maxLen) {
+                                                        maxLen = item.width;
+                                                    }
+                                                }
                                             }
-                                            var container = containers[i];
-                                            var strContainerWidth = widthNavigationbarItem.toString() + "px";
-                                            if (container.style &&
-                                                container.style.width !== strContainerWidth) {
-                                                container.style.width = strContainerWidth;
+                                            if (width < maxLen * NavigationBar.data.length * fontWidth) {
+                                                width = maxLen * NavigationBar.data.length * fontWidth;
+                                                strWidth = width.toString() + "px";
+                                            }
+                                            var surface = element.querySelector(".win-surface");
+                                            if (surface && surface.style) {
+                                                surface.style.width = strWidth;
+                                            }
+                                            // ListView container elements used in filled ListView
+                                            var intemscontainer = element.querySelector(".win-itemscontainer");
+                                            if (intemscontainer && intemscontainer.style) {
+                                                intemscontainer.style.width = strWidth;
+                                            }
+                                            for (i = 0; i < NavigationBar.data.length; i++) {
+                                                item = NavigationBar.data.getAt(i);
+                                                if (item) {
+                                                    var widthNavigationbarItem;
+                                                    if (totalLen > 0) {
+                                                        widthNavigationbarItem = (width * item.width) / totalLen;
+                                                    } else {
+                                                        widthNavigationbarItem = width / item.length;
+                                                    }
+                                                    var container = containers[i];
+                                                    var strContainerWidth = widthNavigationbarItem.toString() + "px";
+                                                    if (container.style) {
+                                                        container.style.width = strContainerWidth;
+                                                    }
+                                                }
+                                            }
+                                            if (doAnimation) {
+                                                if (NavigationBar._orientation !== "vertical") {
+                                                    var textElements = element.querySelectorAll(".navigationbar-text");
+                                                    if (textElements && textElements.length > 0) {
+                                                        var horzHeight = -NavigationBar._horzHeight / 8;
+                                                        var offsetIn = { top: horzHeight.toString() + "px", left: "0px" };
+                                                        WinJS.UI.Animation.enterContent(textElements, offsetIn);
+                                                    }
+                                                }
+                                            }
+                                            if (listControl && listControl.selection && NavigationBar.data) {
+                                                var selectionCount = listControl.selection.count();
+                                                if (selectionCount === 1) {
+                                                    // Only one item is selected, show the page
+                                                    listControl.selection.getItems().done(function (items) {
+                                                        NavigationBar.ListView.scrollIntoView(items[0].index);
+                                                    });
+                                                }
                                             }
                                         }
                                     }
-                                    if (doAnimation) {
-                                        if (NavigationBar._orientation !== "vertical") {
-                                            var textElements = element.querySelectorAll(".navigationbar-text");
-                                            if (textElements && textElements.length > 0) {
-                                                var horzHeight = -NavigationBar._horzHeight / 8;
-                                                var offsetIn = { top: horzHeight.toString() + "px", left: "0px" };
-                                                WinJS.UI.Animation.enterContent(textElements, offsetIn);
-                                            }
-                                        }
-                                    }
                                 }
-                            }
-                        }
-                    }
-                    var splitView = document.querySelector("#root-split-view");
-                    if (splitView) {
-                        //height = window.innerHeight;
-                        var navCommands = document.querySelector(".nav-commands");
-                        if (navCommands && navCommands.clientHeight < splitView.clientHeight) {
-                            navCommands.style.height = splitView.clientHeight.toString() + "px";
-                        }
-                        var splitViewControl = splitView.winControl;
-                        if (splitViewControl) {
-                            var openedDisplayMode;
-                            var closedDisplayMode;
-                            if (NavigationBar._splitViewDisplayMode &&
-                                NavigationBar._splitViewDisplayMode.opened &&
-                                NavigationBar._splitViewDisplayMode.closed) {
-                                openedDisplayMode = NavigationBar._splitViewDisplayMode.opened;
-                                closedDisplayMode = NavigationBar._splitViewDisplayMode.closed;
-                                if (!NavigationBar._splitViewClassSet ||
-                                    openedDisplayMode !== splitViewControl.openedDisplayMode ||
-                                    closedDisplayMode !== splitViewControl.closedDisplayMode) {
-                                    if (openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay && window.innerWidth <= 499) {
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-full");
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-tablet");
-                                        WinJS.Utilities.addClass(splitView, "rootsplitview-mobile");
-                                    } else if (openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-full");
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-mobile");
-                                        WinJS.Utilities.addClass(splitView, "rootsplitview-tablet");
-                                    } else {
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-mobile");
-                                        WinJS.Utilities.removeClass(splitView, "rootsplitview-tablet");
-                                        WinJS.Utilities.addClass(splitView, "rootsplitview-full");
-                                    }
-                                    NavigationBar._splitViewClassSet = true;
-                                }
-                            } else if (window.innerWidth <= 499) {
-                                openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.overlay;
-                                closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.none;
-                                if (!NavigationBar._splitViewClassSet ||
-                                    openedDisplayMode !== splitViewControl.openedDisplayMode ||
-                                    closedDisplayMode !== splitViewControl.closedDisplayMode) {
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-full");
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-tablet");
-                                    WinJS.Utilities.addClass(splitView, "rootsplitview-mobile");
-                                    NavigationBar._splitViewClassSet = true;
-                                }
-                            } else if (window.innerWidth <= 1149) {
-                                openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.overlay;
-                                closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.inline;
-                                if (!NavigationBar._splitViewClassSet ||
-                                    openedDisplayMode !== splitViewControl.openedDisplayMode ||
-                                    closedDisplayMode !== splitViewControl.closedDisplayMode) {
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-full");
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-mobile");
-                                    WinJS.Utilities.addClass(splitView, "rootsplitview-tablet");
-                                    NavigationBar._splitViewClassSet = true;
-                                }
-                            } else {
-                                openedDisplayMode = WinJS.UI.SplitView.OpenedDisplayMode.inline;
-                                closedDisplayMode = WinJS.UI.SplitView.ClosedDisplayMode.inline;
-                                if (!NavigationBar._splitViewClassSet ||
-                                    openedDisplayMode !== splitViewControl.openedDisplayMode ||
-                                    closedDisplayMode !== splitViewControl.closedDisplayMode) {
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-mobile");
-                                    WinJS.Utilities.removeClass(splitView, "rootsplitview-tablet");
-                                    WinJS.Utilities.addClass(splitView, "rootsplitview-full");
-                                    NavigationBar._splitViewClassSet = true;
-                                }
-                            }
-                            if (closedDisplayMode !== splitViewControl.closedDisplayMode) {
-                                splitViewControl.closedDisplayMode = closedDisplayMode;
-                            }
-                            if (openedDisplayMode !== splitViewControl.openedDisplayMode) {
-                                splitViewControl.openedDisplayMode = openedDisplayMode;
                             }
                         }
                     }
@@ -2220,10 +2271,10 @@
                 },
                 // event handler for loadingstatechanged event
                 onLoadingStateChanged: function(eventInfo) {
-                    Log.call(Log.l.trace, "NavigationBar.ListViewClass.");
+                    Log.call(Log.l.u1, "NavigationBar.ListViewClass.");
                     var listControl = this.listControl;
                     if (listControl) {
-                        Log.print(Log.l.trace, "listOrientation=" + this.listOrientation + " loadingState=" + listControl.loadingState);
+                        Log.print(Log.l.u1, "listOrientation=" + this.listOrientation + " loadingState=" + listControl.loadingState);
                         if (listControl.loadingState === "complete") {
                             if (NavigationBar.ListView && listControl === NavigationBar.ListView.listControl) {
                                 var iCur = -1;
@@ -2239,70 +2290,95 @@
                                     }
                                 }
                                 NavigationBar.ListView.setSelIndex(iCur);
-                                NavigationBar.updateOrientation();
-                                NavigationBar.ListView.updateLayout(NavigationBar._playAnimation);
-                                NavigationBar._playAnimation = false;
-                                //if (Application.navigator && Application.navigator.pageElement) {
-                                //    Application.navigator.resizePageElement(Application.navigator.pageElement);
-                                //}
+                                var prevOrientation = NavigationBar.updateOrientation();
+                                if (prevOrientation === NavigationBar.orientation) {
+                                    var playAnimation = NavigationBar._playAnimation;
+                                    WinJS.Promise.timeout(0).then(function() {
+                                        NavigationBar.ListView.updateLayout(playAnimation);
+                                    });
+                                    NavigationBar._playAnimation = false;
+                                }
                             }
                         }
                     }
-                    Log.ret(Log.l.trace);
+                    Log.ret(Log.l.u1);
+                },
+                scrollIntoView: function (curIndex) {
+                    Log.call(Log.l.u1, "NavigationBar.ListViewClass.");
+                    WinJS.Promise.timeout(0).then(function() {
+                        if (NavigationBar._orientation === "horizontal") {
+                            var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
+                            var control = NavigationBar.ListView && NavigationBar.ListView.listControl;
+                            if (element && control) {
+                                var containers = element.querySelectorAll(".win-container");
+                                if (containers && containers.length === NavigationBar.data.length && containers[0]) {
+                                    var surface = element.querySelector(".win-surface");
+                                    if (surface) {
+                                        var overflow = surface.clientWidth - element.clientWidth;
+                                        if (overflow > 0) {
+                                            var containerWidth = containers[0].clientWidth;
+                                            var scrollPosition = curIndex * containerWidth - containerWidth / 2;
+                                            if (scrollPosition < 0) {
+                                                scrollPosition = 0;
+                                            } else if (scrollPosition > overflow) {
+                                                scrollPosition = overflow;
+                                            }
+                                            if (control.scrollPosition !== scrollPosition) {
+                                                var prevScrollPosition = control.scrollPosition;
+                                                var animationDistanceX = scrollPosition - prevScrollPosition;
+                                                var animationOptions = { top: "0px", left: animationDistanceX.toString() + "px" };
+                                                control.scrollPosition = scrollPosition;
+                                                WinJS.UI.Animation.enterContent(surface, animationOptions);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    Log.ret(Log.l.u1);
                 },
                 // event handler for selectionchanged event
                 onSelectionChanged: function(eventInfo) {
                     Log.call(Log.l.trace, "NavigationBar.ListViewClass.");
                     // Handle Page Selection
                     var listControl = this.listControl;
-                    WinJS.Promise.timeout(0).then(function() {
-                        Log.print(Log.l.trace, "from ListViewClass: onSelectionChanged invoked");
-                        if (listControl && listControl.selection && NavigationBar.data) {
-                            var selectionCount = listControl.selection.count();
-                            if (selectionCount === 1) {
-                                // Only one item is selected, show the page
-                                listControl.selection.getItems().done(function(items) {
-                                    var curIndex = items[0].index;
-                                    // sync other list
-                                    if (NavigationBar._listViewVert &&
-                                        NavigationBar._listViewVert.listControl !== listControl) {
-                                        if (NavigationBar.orientation === "horizontal") {
-                                            NavigationBar._listViewVert.setSelIndex(curIndex);
-                                        } else {
-                                            // ignore selectionchanged if not active list
-                                            return;
-                                        }
-                                    } else if (NavigationBar._listViewHorz &&
-                                        NavigationBar._listViewHorz.listControl !== listControl) {
-                                        if (NavigationBar.orientation === "vertical") {
-                                            Log.print(Log.l.trace, "calling setSelIndex(" + curIndex + ")");
-                                            NavigationBar._listViewHorz.setSelIndex(curIndex);
-                                        } else {
-                                            // ignore selectionchanged if not active list
-                                            return;
-                                        }
+                    if (listControl && listControl.selection && NavigationBar.data) {
+                        var selectionCount = listControl.selection.count();
+                        if (selectionCount === 1) {
+                            // Only one item is selected, show the page
+                            listControl.selection.getItems().done(function (items) {
+                                var curIndex = items[0].index;
+                                // sync other list
+                                if (NavigationBar._listViewVert &&
+                                    NavigationBar._listViewVert.listControl !== listControl) {
+                                    if (NavigationBar.orientation === "horizontal") {
+                                        NavigationBar._listViewVert.setSelIndex(curIndex);
+                                        NavigationBar.ListView.scrollIntoView(curIndex);
                                     } else {
-                                        // unusual state
+                                        // ignore selectionchanged if not active list
                                         return;
                                     }
-                                    var item = NavigationBar.data.getAt(curIndex);
-                                    if (item) {
-                                        var id = item.id;
-                                        if (typeof Application._navigateByIdOverride === "function") {
-                                            id = Application._navigateByIdOverride(id, eventInfo);
-                                        }
-                                        var nextPage = Application.getPagePath(id);
-                                        if (nav.location !== nextPage) {
-                                            Log.print(Log.l.trace, "NavigationBar.ListViewClass: calling navigate(" + nextPage + ")");
-                                            nav.navigate(nextPage, eventInfo);
-                                        } else {
-                                            Log.print(Log.l.trace, "extra ignored!");
-                                        }
+                                } else if (NavigationBar._listViewHorz &&
+                                    NavigationBar._listViewHorz.listControl !== listControl) {
+                                    if (NavigationBar.orientation === "vertical") {
+                                        Log.print(Log.l.trace, "calling setSelIndex(" + curIndex + ")");
+                                        NavigationBar._listViewHorz.setSelIndex(curIndex);
+                                    } else {
+                                        // ignore selectionchanged if not active list
+                                        return;
                                     }
-                                });
-                            }
+                                } else {
+                                    // unusual state
+                                    return;
+                                }
+                                var item = NavigationBar.data.getAt(curIndex);
+                                if (item) {
+                                    Application.navigateById(item.id);
+                                }
+                            });
                         }
-                    });
+                    }
                     Log.ret(Log.l.trace);
                 },
                 // function for single selection via item index
@@ -2356,7 +2432,7 @@
             get: function() {
                 return NavigationBar._orientation;
             },
-            set: function(newOrientation) {
+            set: function (newOrientation) {
                 Log.call(Log.l.u1, "NavigationBar.orientation.", "newOrientation=" + newOrientation);
                 if (!NavigationBar._orientation ||
                     NavigationBar._orientation !== newOrientation ||
@@ -2373,8 +2449,9 @@
                     var horzHeight, vertWidth;
                     var inElement, outElement;
                     if (NavigationBar._inOrientationChange > 0) {
-                        WinJS.Promise.timeout(50).then(function() {
-                            NavigationBar.orientation = newOrientation;
+                        WinJS.Promise.timeout(50).then(function () {
+                            // now do complete resize later!
+                            Application.navigator._resized();
                         });
                         Log.ret(Log.l.u1, "semaphore set");
                         return;
@@ -2424,9 +2501,6 @@
                                     if (NavigationBar.ListView) {
                                         NavigationBar.ListView.updateLayout();
                                     }
-                                    //if (Application.navigator && Application.navigator.pageElement) {
-                                    //    Application.navigator.resizePageElement(Application.navigator.pageElement);
-                                    //}
                                 });
                             }
                         }
@@ -2438,7 +2512,7 @@
                             if (inElement && inElement.style) {
                                 inElement.style.visibility = "";
                                 inElement.style.zIndex = thatIn._zIndex;
-                                WinJS.UI.Animation.enterContent(inElement, offsetIn).done(function() {
+                                WinJS.UI.Animation.enterContent(inElement, offsetIn).done(function () {
                                     NavigationBar._inOrientationChange--;
                                 });
                             } 
@@ -2471,9 +2545,6 @@
                                     if (NavigationBar.ListView) {
                                         NavigationBar.ListView.updateLayout();
                                     }
-                                    //if (Application.navigator && Application.navigator.pageElement) {
-                                    //    Application.navigator.resizePageElement(Application.navigator.pageElement);
-                                    //}
                                 });
                             }
                         }
@@ -2507,6 +2578,7 @@
          * @description Use this function to disable the navigation to a page specified by the page id.
          */
         disablePage: function (id) {
+            Log.call(Log.l.u1, "NavigationBar.", "id=" + id);
             var i;
             if (NavigationBar.pages) {
                 for (i = 0; i < NavigationBar.pages.length; i++) {
@@ -2552,6 +2624,7 @@
                     }
                 }
             }
+            Log.ret(Log.l.u1);
         },
         /**
          * @function enablePage
@@ -2560,6 +2633,7 @@
          * @description Use this function to enable the navigation to a page specified by the page id.
          */
         enablePage: function (id) {
+            Log.call(Log.l.u1, "NavigationBar.", "id=" + id);
             var i, updateMenu = false;
             if (NavigationBar.pages) {
                 for (i = 0; i < NavigationBar.pages.length; i++) {
@@ -2609,6 +2683,7 @@
             if (updateMenu) {
                 NavigationBar.groups = Application.navigationBarGroups;
             }
+            Log.ret(Log.l.u1);
         },
         /**
          * @property {@link https://msdn.microsoft.com/en-us/library/windows/apps/br211837.aspx WinJS.UI.ListView} ListView - The currently active navigation bar ListView object
@@ -2644,27 +2719,30 @@
          * @description Use this function to update the navigation bar orientation as a response to viewport size or orientation changes.
          */
         updateOrientation: function () {
-            Log.call(Log.l.trace, "NavigationBar.");
+            var ret = NavigationBar.orientation;
+            Log.call(Log.l.u1, "NavigationBar.");
             var orientation;
 
-            if (Application.navigator && Application.navigator._nextMaster) {
-                orientation = 0;
-            } else {
-                var splitViewPaneInline = false;
-                // SplitView element
-                var splitView = document.querySelector("#root-split-view");
-                if (splitView) {
-                    var splitViewControl = splitView.winControl;
-                    if (splitViewControl &&
-                        splitViewControl.paneOpened &&
-                        splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
-                        splitViewPaneInline = true;
-                    }
-                }
-                if (splitViewPaneInline) {
+            if (Application.navigator) {
+                if (Application.navigator._nextMaster) {
                     orientation = 0;
                 } else {
-                    orientation = Application.getOrientation();
+                    var splitViewPaneInline = false;
+                    // SplitView element
+                    var splitViewRoot = Application.navigator.splitViewRoot;
+                    if (splitViewRoot) {
+                        var splitViewControl = splitViewRoot.winControl;
+                        if (splitViewControl &&
+                            splitViewControl.paneOpened &&
+                            splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
+                            splitViewPaneInline = true;
+                        }
+                    }
+                    if (splitViewPaneInline) {
+                        orientation = 0;
+                    } else {
+                        orientation = Application.getOrientation();
+                    }
                 }
             }
             if (orientation === 90 || orientation === -90) {
@@ -2676,7 +2754,8 @@
                 // change navigation bar orientation
                 NavigationBar.orientation = "horizontal";
             }
-            Log.ret(Log.l.trace, "");
+            Log.ret(Log.l.u1, ret);
+            return ret;
         },
         handleNavCommand: function(ev) {
             Log.call(Log.l.trace, "NavigationBar.");
@@ -2688,23 +2767,15 @@
                     var msg = "menu " + commandControl._label + " with id=" + id + " was pressed";
                     Log.print(Log.l.trace, msg);
                     if (id) {
-                        if (typeof Application._navigateByIdOverride === "function") {
-                            id = Application._navigateByIdOverride(id, ev);
-                        }
-                        var nextPage = Application.getPagePath(id);
-                        if (nav.location !== nextPage) {
-                            WinJS.Promise.timeout(0).then(function() {
-                                nav.navigate(nextPage, ev);
-                            });
-                        } else {
-                            Log.print(Log.l.trace, "extra ignored!");
-                        }
-                        var splitView = document.querySelector("#root-split-view");
-                        if (splitView) {
-                            var splitViewControl = splitView.winControl;
-                            if (splitViewControl &&
-                                splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
-                                splitViewControl.closePane();
+                        Application.navigateById(id);
+                        if (Application.navigator) {
+                            var splitViewRoot = Application.navigator.splitViewRoot;
+                            if (splitViewRoot) {
+                                var splitViewControl = splitViewRoot.winControl;
+                                if (splitViewControl &&
+                                    splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
+                                    splitViewControl.closePane();
+                                }
                             }
                         }
                     }
@@ -2714,16 +2785,18 @@
         },
         handleSplitViewBeforeOpen: function(ev) {
             Log.call(Log.l.trace, "NavigationBar.");
-            var rootSplitViewPane = document.querySelector("#root-split-view-pane");
-            if (rootSplitViewPane && rootSplitViewPane.style) {
-                var splitView = document.querySelector("#root-split-view");
-                if (splitView) {
-                    var splitViewControl = splitView.winControl;
-                    if (splitViewControl &&
-                        splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
-                        rootSplitViewPane.style.marginTop = NavigationBar._horzHeight + "px";
-                    } else {
-                        rootSplitViewPane.style.marginTop = "0";
+            if (Application.navigator) {
+                var rootSplitViewPane = Application.navigator.splitViewPane;
+                if (rootSplitViewPane && rootSplitViewPane.style) {
+                    var splitViewRoot = Application.navigator.splitViewRoot;
+                    if (splitViewRoot) {
+                        var splitViewControl = splitViewRoot.winControl;
+                        if (splitViewControl &&
+                            splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
+                            rootSplitViewPane.style.marginTop = NavigationBar._horzHeight + "px";
+                        } else {
+                            rootSplitViewPane.style.marginTop = "0";
+                        }
                     }
                 }
             }
@@ -2731,35 +2804,39 @@
         },
         handleSplitViewAfterOpen: function (ev) {
             Log.call(Log.l.trace, "NavigationBar.");
-            var splitView = document.querySelector("#root-split-view");
-            if (splitView) {
-                var splitViewControl = splitView.winControl;
-                if (splitViewControl &&
-                    splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
-                    Application.navigator._resized();
+            if (Application.navigator) {
+                var splitViewRoot = Application.navigator.splitViewRoot;
+                if (splitViewRoot) {
+                    var splitViewControl = splitViewRoot.winControl;
+                    if (splitViewControl &&
+                        splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
+                        Application.navigator._resized();
+                    }
                 }
             }
             Log.ret(Log.l.trace, "");
         },
         handleSplitViewAfterClose: function (ev) {
             Log.call(Log.l.trace, "NavigationBar.");
-            var rootSplitViewPane = document.querySelector("#root-split-view-pane");
-            if (rootSplitViewPane && rootSplitViewPane.style) {
-                rootSplitViewPane.style.marginTop = "0";
-            }
-            var splitView = document.querySelector("#root-split-view");
-            if (splitView) {
-                var splitViewControl = splitView.winControl;
-                if (splitViewControl &&
-                    splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
-                    Application.navigator._resized();
+            if (Application.navigator) {
+                var rootSplitViewPane = Application.navigator.splitViewPane;
+                if (rootSplitViewPane && rootSplitViewPane.style) {
+                    rootSplitViewPane.style.marginTop = "0";
+                }
+                var splitViewRoot = Application.navigator.splitViewRoot;
+                if (splitViewRoot) {
+                    var splitViewControl = splitViewRoot.winControl;
+                    if (splitViewControl &&
+                        splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.inline) {
+                        Application.navigator._resized();
+                    }
                 }
             }
             Log.ret(Log.l.trace, "");
         },
         showGroupsMenu: function (results, bForceReloadMenu) {
+            Log.call(Log.l.trace, "NavigationBar.", "bForceReloadMenu=" + bForceReloadMenu);
             var i, updateMenu = false;
-            Log.call(Log.l.trace, "NavigationBar.");
             var applist = [];
             for (i = 0; i < results.length; i++) {
                 var row = results[i];
@@ -2823,7 +2900,7 @@
             Log.ret(Log.l.trace);
         },
         isPageDisabled: function (name) {
-            Log.call(Log.l.trace, "NavigationBar.");
+            Log.call(Log.l.trace, "NavigationBar.", "name=" + name);
             var ret = false;
             if (NavigationBar.pages) {
                 for (var j = 0; j < NavigationBar.pages.length; j++) {
@@ -2836,46 +2913,49 @@
             Log.ret(Log.l.trace, ret);
         },
         loadMenuIcons: function () {
-            var i;
             Log.call(Log.l.u2, "NavigationBar.");
-            var navCommands = document.querySelector(".nav-commands");
-            if (navCommands) {
-                var splitViewCommands = document.querySelectorAll(".win-splitviewcommand");
-                if (splitViewCommands) {
-                    for (i = 0; i < splitViewCommands.length; i++) {
-                        var splitViewCommand = splitViewCommands[i];
-                        if (splitViewCommand && splitViewCommand.winControl) {
-                            var splitViewCommandIcon = splitViewCommand.querySelector(".win-splitviewcommand-icon");
-                            if (!splitViewCommandIcon.firstElementChild) {
-                                if (NavigationBar.groups && NavigationBar.groups.length > 0) {
-                                    for (var j = 0; j < NavigationBar.groups.length; j++) {
-                                        if (splitViewCommand.winControl.id === NavigationBar.groups[j].id) {
-                                            var svg = NavigationBar.groups[j].svg;
-                                            if (svg) {
-                                                var svgObject = document.createElement("div");
-                                                if (svgObject) {
-                                                    svgObject.setAttribute("width", "24");
-                                                    svgObject.setAttribute("height", "24");
-                                                    svgObject.style.display = "inline";
-                                                    svgObject.id = svg;
+            var i;
+            var splitViewRoot = Application.navigator && Application.navigator.splitViewRoot;
+            if (splitViewRoot) {
+                var navCommands = splitViewRoot.querySelector(".nav-commands");
+                if (navCommands) {
+                    var splitViewCommands = splitViewRoot.querySelectorAll(".win-splitviewcommand");
+                    if (splitViewCommands) {
+                        for (i = 0; i < splitViewCommands.length; i++) {
+                            var splitViewCommand = splitViewCommands[i];
+                            if (splitViewCommand && splitViewCommand.winControl) {
+                                var splitViewCommandIcon = splitViewCommand.querySelector(".win-splitviewcommand-icon");
+                                if (!splitViewCommandIcon.firstElementChild) {
+                                    if (NavigationBar.groups && NavigationBar.groups.length > 0) {
+                                        for (var j = 0; j < NavigationBar.groups.length; j++) {
+                                            if (splitViewCommand.winControl.id === NavigationBar.groups[j].id) {
+                                                var svg = NavigationBar.groups[j].svg;
+                                                if (svg) {
+                                                    var svgObject = document.createElement("div");
+                                                    if (svgObject) {
+                                                        svgObject.setAttribute("width", "24");
+                                                        svgObject.setAttribute("height", "24");
+                                                        svgObject.style.display = "inline";
+                                                        svgObject.id = svg;
 
-                                                    // insert svg object before span element
-                                                    splitViewCommandIcon.appendChild(svgObject);
+                                                        // insert svg object before span element
+                                                        splitViewCommandIcon.appendChild(svgObject);
 
-                                                    // overlay span element over svg object to enable user input
-                                                    splitViewCommandIcon.setAttribute("style", "width: 24px; height: 24px;");
+                                                        // overlay span element over svg object to enable user input
+                                                        splitViewCommandIcon.setAttribute("style", "width: 24px; height: 24px;");
 
-                                                    // load the image file
-                                                    Colors.loadSVGImage({
-                                                        fileName: svg,
-                                                        color: Colors.navigationColor,
-                                                        element: svgObject,
-                                                        size: 24
-                                                    });
+                                                        // load the image file
+                                                        Colors.loadSVGImage({
+                                                            fileName: svg,
+                                                            color: Colors.navigationColor,
+                                                            element: svgObject,
+                                                            size: 24
+                                                        });
 
+                                                    }
                                                 }
+                                                break;
                                             }
-                                            break;
                                         }
                                     }
                                 }
@@ -2887,8 +2967,8 @@
             Log.ret(Log.l.u2);
         },
         setMenuForGroups: function () {
-            var i;
             Log.call(Log.l.trace, "NavigationBar.");
+            var i;
             var navCommands = document.querySelector(".nav-commands");
             if (navCommands) {
                 var commands = navCommands.children;
@@ -2910,10 +2990,16 @@
                             var element = document.createElement("div");
                             navCommands.appendChild(element);
                             var navigationLabel = getResourceText("label." + (NavigationBar.groups[i].label || NavigationBar.groups[i].id));
+                            var resIdTooltip = "tooltip." + (NavigationBar.groups[i].label || NavigationBar.groups[i].id);
+                            var navigationTooltip = getResourceText(resIdTooltip);
+                            if (!navigationTooltip || navigationTooltip === resIdTooltip) {
+                                navigationTooltip = navigationLabel;
+                            }
                             var options = {
                                 id: NavigationBar.groups[i].id,
                                 label: navigationLabel,
-                                oninvoked: NavigationBar.handleNavCommand
+                                oninvoked: NavigationBar.handleNavCommand,
+                                tooltip: navigationTooltip
                             };
                             if (!NavigationBar.groups[i].svg) {
                                 options.icon = NavigationBar.groups[i].icon;
@@ -2982,16 +3068,13 @@
                             }
                         }
                     }
-                    NavigationBar._playAnimation = true;
+                    //NavigationBar._playAnimation = true;
                     NavigationBar.curGroup = group;
                     NavigationBar.updateOrientation();
                     var ret = WinJS.Promise.timeout(0).then(function() {
                         if (NavigationBar.ListView) {
                             NavigationBar.ListView.updateLayout();
                         }
-                        //if (Application.navigator && Application.navigator.pageElement) {
-                        //    Application.navigator.resizePageElement(Application.navigator.pageElement);
-                        //}
                     });
                     Log.ret(Log.l.trace);
                     return ret;

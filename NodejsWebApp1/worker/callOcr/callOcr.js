@@ -12,23 +12,20 @@
     var sourceImageUrl = "http://www.prinux.com/wp-content/uploads/2015/12/4Schriftarten.jpg";
     var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr?language=de";
     var UUID = require("uuid-js");
-
-    var imageRecord = {
-        url: sourceImageUrl
-    };
+    var b64js = require("base64-js");
 
     var options = {
         type: "POST",
         url: uriBase,
-        data: JSON.stringify(imageRecord),
+        data: null,
         headers: {
-            "Content-Type": "application/json",
+            "Content-Type": "'application/octet-stream'",
             "Ocp-Apim-Subscription-Key": subscriptionKey
         }
     };
 
     var myResult = "";
-    var importcardscanid = "";
+    var importcardscanid = 0;
 
     var dispatcher = {
 
@@ -63,21 +60,25 @@
                 Log.print(Log.l.error, "PRC_STARTCARDOCREX error! " + that.successCount + " success / " + that.errorCount + " errors");
                 that.timestamp = new Date();
             }).then(function () {
-                //return importCardsvanView.select... { Button: pAktionStatus }
                 if (that.dbEngine) {
                     ret = that.dbEngine.select(function (json) {
-                        that.results = [];
-                        if (json && json.d && json.d.results) {
-                            for (var i = 0; i < json.d.results.length; i++) {
-                                Log.print(Log.l.info, "[" + i + "]: " + json.d.results[i].Name);
-                                that.results.push(json.d.results[i]);
+                        if (json && json.d && json.d.results && json.d.results.length > 0) {
+                            Log.print(Log.l.info, "[" + 0 + + "]: " + json.d.results[0].IMPORT_CARDSCANVIEWID);
+                            importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
+                            var docContent = json.d.results[0].DocContentDOCCNT1;
+                            if (docContent) {
+                                var sub = docContent.search("\r\n\r\n");
+                                options.data = b64js.toByteArray(docContent.substr(sub + 4));
+                            } else {
+                                AppData._photoData = null;
                             }
+                        } else {
+                            AppData._photoData = null;
                         }
                         that.successCount++;
                         Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
                         that.timestamp = new Date();
                     }, function (error) {
-                        that.results = [];
                         that.errorCount++;
                         Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
                         that.timestamp = new Date();
@@ -94,7 +95,6 @@
                     Log.print(Log.l.trace, "success!");
                     try {
                         var obj = response;
-                        //console.log(obj);
                         var myresultJson = JSON.parse(response.responseText);
                         if (obj && obj.responseText) {
                             that.successCount++;
@@ -106,13 +106,12 @@
                             that.timestamp = new Date();
                             err = { status: 404, statusText: "no data found" };
                         }
-                        if (that.results.length > 0 && myresultJson && myresultJson.regions.length > 0) {
+                        if (myresultJson && myresultJson.regions.length > 0) {
                             for (var i = 0; i < myresultJson.regions.length; i++) {
                                 for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
                                     for (var k = 0; k < myresultJson.regions[i].lines[j].words.length; k++) {
                                         var myBoundingBox = myresultJson.regions[i].lines[j].words[k].boundingBox;
                                         var myNewboundingBox = myBoundingBox.split(",");
-                                        importcardscanid = parseInt(that.results[0].IMPORT_CARDSCANVIEWID);
                                         var x = parseInt(myNewboundingBox[0]);
                                         var y = parseInt(myNewboundingBox[1]);
                                         var width = parseInt(myNewboundingBox[2]);
@@ -164,6 +163,34 @@
                     }, dataImportCardscanBulk);
                 }
                 return WinJS.Promise.as();
+            }).then(function () {
+                var pAktionStatus = "OCR_Done"; //"OCR_START" + this.ocrUuid;
+                Log.call(Log.l.trace, "callOcr.");
+                ret = AppData.call("PRC_CreateSDICFields",
+                    {
+                        p_ImportCardScanID: importcardscanid
+                    },
+                    function (json) {
+                        that.successCount++;
+                        Log.print(Log.l.info,
+                            "PRC_CreateSDICFields success! " +
+                            that.successCount +
+                            " success / " +
+                            that
+                                .errorCount +
+                            " errors");
+                        that.timestamp = new Date();
+                    },
+                    function (error) {
+                        that.errorCount++;
+                        Log.print(Log.l.error,
+                            "PRC_CreateSDICFields error! " +
+                            that.successCount +
+                            " success / " +
+                            that.errorCount +
+                            " errors");
+                        that.timestamp = new Date();
+                    });
             });
             Log.ret(Log.l.trace);
             return ret;

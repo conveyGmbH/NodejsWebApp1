@@ -292,7 +292,7 @@
                                     Log.print(Log.l.trace, "data saved to localStorage");
                                     if (typeof window.resolveLocalFileSystemURL === "function") {
                                         window.resolveLocalFileSystemURL(cordova.file.dataDirectory, function (dirEntry) {
-                                            Log.print(Log.l.info, "resolveLocalFileSystemURL: file system open name=" + dirEntry.toString());
+                                            Log.print(Log.l.info, "resolveLocalFileSystemURL: file system open name=" + JSON.stringify(dirEntry));
                                             dirEntry.getFile(Application.pageframe.filenamePersistentStates, { create: true, exclusive: false }, function (fileEntry) {
                                                 fileEntry.createWriter(function (fileWriter) {
                                                     fileWriter.onerror = function (e) {
@@ -303,15 +303,15 @@
                                                     Log.print(Log.l.info, "fileWriter: data written to file name=" + Application.pageframe.filenamePersistentStates);
                                                     Application.pageframe._inSavePersistentStates--;
                                                 }, function (errorResponse) {
-                                                    Log.print(Log.l.error, "createWriter(" + Application.pageframe.filenamePersistentStates + ") error " + errorResponse.toString());
+                                                    Log.print(Log.l.error, "createWriter(" + Application.pageframe.filenamePersistentStates + ") error " + JSON.stringify(errorResponse));
                                                     Application.pageframe._inSavePersistentStates--;
                                                 });
                                             }, function (errorResponse) {
-                                                Log.print(Log.l.error, "getFile(" + Application.pageframe.filenamePersistentStates + ") error " + errorResponse.toString());
+                                                Log.print(Log.l.error, "getFile(" + Application.pageframe.filenamePersistentStates + ") error " + JSON.stringify(errorResponse));
                                                 Application.pageframe._inSavePersistentStates--;
                                             });
                                         }, function (errorResponse) {
-                                            Log.print(Log.l.error, "resolveLocalFileSystemURL error " + errorResponse.toString());
+                                            Log.print(Log.l.error, "resolveLocalFileSystemURL error " + JSON.stringify(errorResponse));
                                             Application.pageframe._inSavePersistentStates--;
                                         });
                                     } else {
@@ -487,6 +487,8 @@
                 checkForResources: function (language, complete, error) {
                     Log.call(Log.l.trace, "PageFrame.", "language=" + language);
                     Application.pageframe.loadLocalRessources(language, function (result) {
+                        // alert box feature
+                        Application._initAlert();
                         complete();
                     }, function (err) {
                         Log.print(Log.l.error, "loadLocalRessources failed");
@@ -598,7 +600,9 @@
                     if (typeof AppData._persistentStates.individualColors === "undefined") {
                         AppData._persistentStates.individualColors = false;
                     }
-                    Colors.isDarkTheme = AppData._persistentStates.isDarkTheme;
+                    if (!AppData._persistentStates.individualColors) {
+                        AppData._persistentStates.colorSettings = copyByValue(AppData.persistentStatesDefaults.colorSettings);
+                    }
                     var colors = new Colors.ColorsClass(AppData._persistentStates.colorSettings);
 
                     // special handling of app statusbar on iOS >= 7
@@ -643,9 +647,6 @@
                 post_initialize: function () {
                     Log.call(Log.l.trace, "PageFrame.", "");
 
-                    // alert box feature
-                    Application._initAlert();
-
                     // reset navigation history
                     nav.history = app.sessionState.history || {};
                     nav.history.current.initialPlaceholder = true;
@@ -683,16 +684,10 @@
                     if (AppData._persistentStates.navigatorOptions) {
                         navigatorOptions = AppData._persistentStates.navigatorOptions;
                     }
-                    Log.print(Log.l.trace, "initialize NavigationBar");
-                    var navigationBar = new NavigationBar.ListViewClass(Application.navigationBarPages, Application.navigationBarGroups, navigatorOptions);
-
-                    // _resized shows navigation bar in correct orientation
-                    Log.print(Log.l.trace, "calling _resized");
-                    if (Application.navigator) {
-                        Application.navigator._resized();
-                    }
                     // go on with page navigation
                     var p = ui.processAll().then(function () {
+                        Log.print(Log.l.trace, "initialize NavigationBar");
+                        var navigationBar = new NavigationBar.ListViewClass(Application.navigationBarPages, Application.navigationBarGroups, navigatorOptions);
                         var appHeaderPage = Application.getPagePath("appHeader");
                         var headerhost = document.querySelector("#headerhost");
                         return WinJS.UI.Pages.render(appHeaderPage, headerhost);
@@ -705,8 +700,6 @@
                     }).then(function () {
                         Log.print(Log.l.trace, "calling enableAnimations");
                         ui.enableAnimations();
-                        // force colors again!
-                        var colors = new Colors.ColorsClass(AppData._persistentStates.colorSettings, true);
                         return WinJS.Promise.timeout(Application.pageframe.splashScreenDone ? 0 : 1000);
                     }).then(function () {
                         return Application.pageframe.hideSplashScreen();

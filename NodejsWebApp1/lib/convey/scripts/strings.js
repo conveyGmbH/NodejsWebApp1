@@ -225,9 +225,64 @@
             }
         }
 
+        _Global.formatFloat = function (num, decDigits, sepDecimal, sepThousand) {
+            decDigits = decDigits || 0;
+            if (AppData && typeof AppData.getLanguageId === "function" && AppData.getLanguageId() === 1033) {
+                sepDecimal = sepDecimal || ".";
+                sepThousand = sepThousand || ",";
+            } else {
+                sepDecimal = sepDecimal || ",";
+                sepThousand = sepThousand || ".";
+            }
+            var sign;
+            if (num < 0) {
+                num = -num;
+                sign = -1;
+            } else {
+                sign = 1;
+            }
+            var ret = "";
+            var part = "";
+            if (num !== Math.floor(num)) { // decimal values present
+                if (decDigits > 0) {
+                    var decPart = (num - Math.floor(num)) * Math.pow(10, decDigits);
+                    part = Math.round(decPart).toString(); // transforms decimal part into integer (rounded)
+                    if (part.length > decDigits) {
+                        ret = sepDecimal + part.substr(1);
+                        num = Math.round(num);
+                    } else {
+                        while (part.length < decDigits) {
+                            part = "0" + part;
+                        }
+                        ret = sepDecimal + part;
+                        num = Math.floor(num);
+                    }
+                } else {
+                    num = Math.round(num);
+                }
+            } // end of decimal part
+            if (num === 0) {
+                ret = "0" + ret;
+            } else while (num > 0) {// integer part
+                part = (num - Math.floor(num/1000)*1000).toString(); // part = three less significant digits
+                num = Math.floor(num/1000);
+                if (num > 0) {
+                    while (part.length < 3) { // 123.023.123  if sepMilhar = '.'
+                        part = "0" + part; // 023
+                    }
+                }
+                ret = part + ret;
+                if (num > 0) {
+                    ret = sepThousand + ret;
+                }
+            }
+            if (sign < 0) {
+                ret = '-' + ret;
+            }
+            return ret;
+        }
+
     });
-
-
 })();
 
 
@@ -258,25 +313,30 @@
         },
         _initAlert: function () {
             Log.call(Log.l.trace, "Application.", "");
-            var okButton = document.querySelector("#okButton");
-            if (okButton) {
-                okButton.addEventListener("click", function(event) {
-                    Application._closeAlert();
-                    if (typeof Application.alertHandler === "function") {
-                        Application.alertHandler(true);
-                        Application.alertHandler = null;
+            var alertFlyout = document.querySelector("#alertFlyout");
+            if (alertFlyout) {
+                WinJS.Resources.processAll(alertFlyout).then(function() {
+                    var okButton = document.querySelector("#okButton");
+                    if (okButton) {
+                        okButton.addEventListener("click", function (event) {
+                            Application._closeAlert();
+                            if (typeof Application.alertHandler === "function") {
+                                Application.alertHandler(true);
+                                Application.alertHandler = null;
+                            }
+                        }, false);
                     }
-                }, false);
-            }
-            var cancelButton = document.querySelector("#cancelButton");
-            if (cancelButton) {
-                cancelButton.addEventListener("click", function(event) {
-                    Application._closeAlert();
-                    if (typeof Application.alertHandler === "function") {
-                        Application.alertHandler(false);
-                        Application.alertHandler = null;
+                    var cancelButton = document.querySelector("#cancelButton");
+                    if (cancelButton) {
+                        cancelButton.addEventListener("click", function (event) {
+                            Application._closeAlert();
+                            if (typeof Application.alertHandler === "function") {
+                                Application.alertHandler(false);
+                                Application.alertHandler = null;
+                            }
+                        }, false);
                     }
-                }, false);
+                });
             }
             Log.ret(Log.l.trace);
         },
@@ -299,7 +359,7 @@
          * @param {function} handler - Handler function(boolean) to be called.
          * @description Implements the alert box functionality. The handler function is called with true value by Ok button of the message box.
          */
-        alert: function (text, handler) {
+        alert: function (text, handler, anchor) {
             Log.call(Log.l.trace, "Application.", "text=" + text);
             var alertFlyout = document.querySelector("#alertFlyout");
             if (alertFlyout && alertFlyout.winControl) {
@@ -307,19 +367,17 @@
                 if (alertText) {
                     alertText.textContent = text;
                 }
-                if (alertFlyout.winControl.hidden) {
-                    Application.alertHandler = handler;
-                    var context = { flyoutOk: getResourceText('flyout.ok') };
-                    var cancelButton = document.querySelector("#cancelButton");
-                    if (cancelButton && cancelButton.style.display !== "none") {
-                        cancelButton.style.display = "none";
+                Application.alertHandler = handler;
+                var cancelButton = document.querySelector("#cancelButton");
+                if (cancelButton && cancelButton.style) {
+                    cancelButton.style.display = "none";
+                }
+                var okButton = document.querySelector("#okButton");
+                if (okButton) {
+                    if (!anchor) {
+                        anchor = (AppBar && AppBar.scope && AppBar.scope.element) ? AppBar.scope.element : document.body;
                     }
-                    var okButton = document.querySelector("#okButton");
-                    if (okButton) {
-                        WinJS.Binding.processAll(okButton, context);
-                        var anchor = (AppBar && AppBar.scope && AppBar.scope.element) ? AppBar.scope.element : document.body;
-                        alertFlyout.winControl.show(anchor);
-                    }
+                    alertFlyout.winControl.show(anchor);
                 }
             }
             Log.ret(Log.l.trace);
@@ -331,7 +389,7 @@
          * @param {function} handler - Handler function(boolean) to be called.
          * @description Implements the alert box functionality. The handler function is called with true value by Ok and false by the Cancel button of the message box.
          */
-        confirm: function (text, handler) {
+        confirm: function (text, handler, anchor) {
             Log.call(Log.l.trace, "Application.", "text=" + text);
             var alertFlyout = document.querySelector("#alertFlyout");
             if (alertFlyout && alertFlyout.winControl) {
@@ -339,23 +397,17 @@
                 if (alertText) {
                     alertText.textContent = text;
                 }
-                if (alertFlyout.winControl.hidden) {
-                    Application.alertHandler = handler;
-                    var context = {
-                        flyoutOk: getResourceText('flyout.ok'),
-                        flyoutCancel: getResourceText('flyout.cancel')
-                    };
-                    var cancelButton = document.querySelector("#cancelButton");
-                    if (cancelButton && cancelButton.style.display === "none") {
-                        cancelButton.style.display = "";
-                        WinJS.Binding.processAll(cancelButton, context);
+                Application.alertHandler = handler;
+                var cancelButton = document.querySelector("#cancelButton");
+                if (cancelButton && cancelButton.style) {
+                    cancelButton.style.display = "";
+                }
+                var okButton = document.querySelector("#okButton");
+                if (okButton) {
+                    if (!anchor) {
+                        anchor = (AppBar && AppBar.scope && AppBar.scope.element) ? AppBar.scope.element : document.body;
                     }
-                    var okButton = document.querySelector("#okButton");
-                    if (okButton) {
-                        WinJS.Binding.processAll(okButton, context);
-                        var anchor = (AppBar && AppBar.scope && AppBar.scope.element) ? AppBar.scope.element : document.body;
-                        alertFlyout.winControl.show(anchor);
-                    }
+                    alertFlyout.winControl.show(anchor);
                 }
             }
             Log.ret(Log.l.trace);
