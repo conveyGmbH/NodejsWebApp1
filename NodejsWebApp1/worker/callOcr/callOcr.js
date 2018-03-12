@@ -10,22 +10,10 @@
 
     var subscriptionKey = "a12ee952460d409f9f66d1536dd97318";
     var sourceImageUrl = "http://www.prinux.com/wp-content/uploads/2015/12/4Schriftarten.jpg";
-    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr?language=de";
+    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr";
     var UUID = require("uuid-js");
     var b64js = require("base64-js");
 
-    var options = {
-        type: "POST",
-        url: uriBase,
-        data: null,
-        headers: {
-            "Content-Type": "'application/octet-stream'",
-            "Ocp-Apim-Subscription-Key": subscriptionKey
-        }
-    };
-
-    var myResult = "";
-    var importcardscanid = 0;
 
     var dispatcher = {
 
@@ -35,7 +23,8 @@
             this.errorCount = 0;
             this.waitTimeMs = 5000;
             this.timestamp = null;
-            this.dbEngine = AppData.getFormatView("IMPORT_CARDSCAN", 20507, false);
+            this._importCardscan_ODataView = AppData.getFormatView("IMPORT_CARDSCAN", 0, false);
+            this._importCardscanView20507 = AppData.getFormatView("IMPORT_CARDSCAN", 20507, false);
             this._importCardscanBulk_ODataView = AppData.getFormatView("ImportCardScanBulk", 0, false);
             this.results = [];
             var uuid = UUID.create();
@@ -45,67 +34,80 @@
         },
 
         activity: function () {
-            var ret = null;
+            var options = {
+                type: "POST",
+                url: uriBase,
+                data: null,
+                headers: {
+                    "Content-Type": "'application/octet-stream'",
+                    "Ocp-Apim-Subscription-Key": subscriptionKey
+                }
+            };
+            var startOk = false;
+            var finishedOk = false;
+            var myResult = "";
+            var importcardscanid = 0;
+            var cardscanbulkid = 0;
+            var dataImportCardscan = {};
             var that = this;
             var pAktionStatus = "OCR_START" + this.ocrUuid; //"OCR_START" + this.ocrUuid;
             Log.call(Log.l.trace, "callOcr.");
-            ret = AppData.call("PRC_STARTCARDOCREX", {
+            var ret = AppData.call("PRC_STARTCARDOCREX", {
                 pAktionStatus: pAktionStatus
             }, function (json) {
-                that.successCount++;
-                Log.print(Log.l.info, "PRC_STARTCARDOCREX success! " + that.successCount + " success / " + that.errorCount + " errors");
-                that.timestamp = new Date();
+                Log.print(Log.l.trace, "PRC_STARTCARDOCREX success!");
+                startOk = true;
             }, function (error) {
                 that.errorCount++;
                 Log.print(Log.l.error, "PRC_STARTCARDOCREX error! " + that.successCount + " success / " + that.errorCount + " errors");
                 that.timestamp = new Date();
-            }).then(function () {
-                if (that.dbEngine) {
-                    ret = that.dbEngine.select(function (json) {
-                        if (json && json.d && json.d.results && json.d.results.length > 0) {
-                            Log.print(Log.l.info, "[" + 0 + + "]: " + json.d.results[0].IMPORT_CARDSCANVIEWID);
-                            importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
-                            var docContent = json.d.results[0].DocContentDOCCNT1;
-                            if (docContent) {
-                                var sub = docContent.search("\r\n\r\n");
-                                options.data = b64js.toByteArray(docContent.substr(sub + 4));
-                            } else {
-                                AppData._photoData = null;
-                            }
-                        } else {
-                            AppData._photoData = null;
-                        }
-                        that.successCount++;
-                        Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
-                        that.timestamp = new Date();
-                    }, function (error) {
-                        that.errorCount++;
-                        Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
-                        that.timestamp = new Date();
-                    }, { Button: pAktionStatus });
-                } else {
-                    Log.Print(Log.l.error, "not initialized!");
-                    ret = WinJS.Promise.as();
+            }).then(function selectCardscanView20507() {
+                Log.call(Log.l.trace, "callOcr.", "pAktionStatus=" + pAktionStatus);
+                if (!startOk) {
+                    Log.ret(Log.l.trace, "PRC_STARTCARDOCREX failed!");
+                    return WinJS.Promise.as();
                 }
-                return ret;
-            }).then(function () {
-                //return azure Post...
+                if (!that._importCardscanView20507) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "_importCardscanView20507 not initialized! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
+                Log.ret(Log.l.trace);
+                return that._importCardscanView20507.select(function (json) {
+                    if (json && json.d && json.d.results && json.d.results.length > 0) {
+                        importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
+                        Log.print(Log.l.trace, "importcardscanid=" + importcardscanid);
+                        var docContent = json.d.results[0].DocContentDOCCNT1;
+                        if (docContent) {
+                            var sub = docContent.search("\r\n\r\n");
+                            options.data = b64js.toByteArray(docContent.substr(sub + 4));
+                        }
+                    }
+                }, function (error) {
+                    that.errorCount++;
+                    Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
+                }, { Button: pAktionStatus });
+            }).then(function ocrPostRequest() {
+                Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
+                if (!importcardscanid) {
+                    Log.ret(Log.l.trace, "no record found!");
+                    return WinJS.Promise.as();
+                }
+                if (!options.data) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "no data returned! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
+                Log.ret(Log.l.trace);
                 return WinJS.xhr(options).then(function (response) {
                     var err;
-                    Log.print(Log.l.trace, "success!");
+                    Log.print(Log.l.trace, "POST success!");
                     try {
                         var obj = response;
                         var myresultJson = JSON.parse(response.responseText);
-                        if (obj && obj.responseText) {
-                            that.successCount++;
-                            Log.print(Log.l.info, "select success! " + that.successCount + " success / " + that.errorCount + " errors");
-                            that.timestamp = new Date();
-                        } else {
-                            that.errorCount++;
-                            Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
-                            that.timestamp = new Date();
-                            err = { status: 404, statusText: "no data found" };
-                        }
                         if (myresultJson && myresultJson.regions.length > 0) {
                             for (var i = 0; i < myresultJson.regions.length; i++) {
                                 for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
@@ -141,56 +143,95 @@
                     Log.print(Log.l.error, "error status=" + that.errorResponse.status + " statusText=" + that.errorResponse.statusText);
                     that.timestamp = new Date();
                 });
-            }).then(function () {
+            }).then(function importCardscanBulk() {
+                Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
+                if (!importcardscanid) {
+                    Log.ret(Log.l.trace, "no record found!");
+                    return WinJS.Promise.as();
+                }
+                if (!myResult) {
+                    Log.ret(Log.l.error, "no result found!");
+                    return WinJS.Promise.as();
+                }
+                if (!that._importCardscanBulk_ODataView) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "_importCardscanBulk_ODataView not initialized! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
                 var dataImportCardscanBulk = {
                     IMPORT_CARDSCANID: importcardscanid,
                     OCRData: myResult
                 };
-                //return neue insert Tabelle!... 
-                if (importcardscanid && myResult && that._importCardscanBulk_ODataView) {
-                    ret = that._importCardscanBulk_ODataView.insert(function (json) {
-                        Log.print(Log.l.info, "importcardscanBulk insert: success!");
-                        if (json && json.d) {
-                            Log.print(Log.l.info, "IMPORT_CARDSCANID=" + json.d.IMPORT_CARDSCANID);
-                        }
-                        that.successCount++;
-                        Log.print(Log.l.info, "PRC_STARTCARDOCREX success! " + that.successCount + " success / " + that.errorCount + " errors");
-                        that.timestamp = new Date();
-                    }, function (error) {
-                        that.errorCount++;
-                        Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
-                        that.timestamp = new Date();
-                    }, dataImportCardscanBulk);
+                Log.ret(Log.l.trace);
+                return that._importCardscanBulk_ODataView.insert(function (json) {
+                    Log.print(Log.l.info, "importcardscanBulk insert: success!");
+                    if (json && json.d) {
+                        Log.print(Log.l.info, "ImportCardScanBulkVIEWID=" + json.d.ImportCardScanBulkVIEWID);
+                        cardscanbulkid = json.d.ImportCardScanBulkVIEWID;
+                    }
+                }, function (error) {
+                    that.errorCount++;
+                    Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
+                }, dataImportCardscanBulk);
+            }).then(function selectImportCardscan() {
+                Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
+                if (!importcardscanid) {
+                    Log.ret(Log.l.trace, "no record found!");
+                    return WinJS.Promise.as();
                 }
-                return WinJS.Promise.as();
-            }).then(function () {
-                var pAktionStatus = "OCR_Done"; //"OCR_START" + this.ocrUuid;
-                Log.call(Log.l.trace, "callOcr.");
-                ret = AppData.call("PRC_CreateSDICFields",
-                    {
-                        p_ImportCardScanID: importcardscanid
-                    },
-                    function (json) {
-                        that.successCount++;
-                        Log.print(Log.l.info,
-                            "PRC_CreateSDICFields success! " +
-                            that.successCount +
-                            " success / " +
-                            that
-                                .errorCount +
-                            " errors");
-                        that.timestamp = new Date();
-                    },
-                    function (error) {
-                        that.errorCount++;
-                        Log.print(Log.l.error,
-                            "PRC_CreateSDICFields error! " +
-                            that.successCount +
-                            " success / " +
-                            that.errorCount +
-                            " errors");
-                        that.timestamp = new Date();
-                    });
+                if (!that._importCardscan_ODataView) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "_importCardscan_ODataView not initialized! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
+                Log.ret(Log.l.trace);
+                return that._importCardscan_ODataView.selectById(function (json) {
+                    if (json && json.d) {
+                        dataImportCardscan = json.d;
+                    }
+                }, function (error) {
+                    that.errorCount++;
+                    Log.print(Log.l.error, "_importCardscan_ODataView error! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
+                }, importcardscanid);
+            }).then(function updateImportCardscan() {
+                Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
+                if (!importcardscanid) {
+                    Log.ret(Log.l.trace, "no record found!");
+                    return WinJS.Promise.as();
+                }
+                if (!dataImportCardscan) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "no data found! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
+                if (!that._importCardscan_ODataView) {
+                    that.errorCount++;
+                    that.timestamp = new Date();
+                    Log.ret(Log.l.error, "_importCardscan_ODataView not initialized! " + that.successCount + " success / " + that.errorCount + " errors");
+                    return WinJS.Promise.as();
+                }
+                if (cardscanbulkid) {
+                    pAktionStatus = "OCR_DONE";
+                } else {
+                    pAktionStatus = "OCR_ERROR";
+                }
+                dataImportCardscan.Button = pAktionStatus;
+                dataImportCardscan.SCANTS = null;
+                Log.ret(Log.l.trace);
+                return that._importCardscan_ODataView.update(function (json) {
+                    that.successCount++;
+                    Log.print(Log.l.info, "_importCardscan_ODataView update: success! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
+                }, function (error) {
+                    that.errorCount++;
+                    Log.print(Log.l.error, "_importCardscan_ODataView error! " + that.successCount + " success / " + that.errorCount + " errors");
+                    that.timestamp = new Date();
+                    }, importcardscanid, dataImportCardscan);
             });
             Log.ret(Log.l.trace);
             return ret;
@@ -209,7 +250,6 @@
             if (this.timestamp) {
                 infoText += "\n" + this.timestamp.toLocaleTimeString();
             }
-            Log.call(Log.l.trace, "importCardscanView.select.");
             if (this.results) {
                 for (var i = 0; i < this.results.length; i++) {
                     infoText += "\n" + "[" + i + "]: " + this.results[i];
