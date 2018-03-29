@@ -140,7 +140,7 @@
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     that.errorCount++;
-                    Log.print(Log.l.error, "error status=" + that.errorResponse.status + " statusText=" + that.errorResponse.statusText);
+                    Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
                     that.timestamp = new Date();
                 });
             }).then(function importCardscanBulk() {

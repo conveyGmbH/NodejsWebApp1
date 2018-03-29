@@ -59,6 +59,9 @@
     <Compile Include="lib\WinJS\scripts\WinJS.intellisense.js" />
     <Compile Include="lib\WinJS\scripts\WinJS.intellisense-setup.js" />
     <Compile Include="server.js" />
+    <Compile Include="worker\bcrService\bcrService.js">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="worker\callOcr\callOcr.js" />
     <Compile Include="worker\selectKontakt\selectKontakt.js" />
     <Compile Include="worker\selectMitarbeiter\selectMitarbeiter.js" />
@@ -99,6 +102,7 @@
     <Folder Include="typings\globals\node\" />
     <Folder Include="worker\" />
     <Folder Include="worker\callOcr\" />
+    <Folder Include="worker\bcrService\" />
     <Folder Include="worker\selectKontakt\" />
     <Folder Include="worker\selectMitarbeiter\" />
     <Folder Include="worker\selectVeranstaltung\" />

@@ -96,8 +96,9 @@
         //{ name: "selectMitarbeiter", count: 100 },
         //"selectVeranstaltung",
         //{ name: "selectKontakt", count: 100 }//,
-        "callOcr"
+        //"callOcr"
         //"xhrRequest"
+        "bcrService"
     ], port);
 
     /*
