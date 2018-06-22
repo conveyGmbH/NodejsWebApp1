@@ -10,6 +10,13 @@
 
     var UUID = require("uuid-js");
     var b64js = require("base64-js");
+    var zlib = require("zlib");
+
+    var crypto = require('crypto');
+    var algorithm = "bf-ecb";
+    var key = [0xad, 0x00, 0xe0, 0x7b, 0x4b, 0xf0, 0xde, 0x4a];
+    //var decipher = crypto.createDecipheriv(algorithm, new Buffer(key), '');
+    //decipher.setAutoPadding(false);
 
     var dispatcher = {
         startup: function () {
@@ -28,7 +35,7 @@
             return WinJS.Promise.as();
         },
 
-        activity: function() {
+        activity: function () {
             var startOk = false;
             var finishedOk = false;
             var myResult = "";
@@ -42,11 +49,11 @@
                 {
                     pAktionStatus: pAktionStatus
                 },
-                function(json) {
+                function (json) {
                     Log.print(Log.l.trace, "PRC_STARTVCARD success!");
                     startOk = true;
                 },
-                function(error) {
+                function (error) {
                     that.errorCount++;
                     Log.print(Log.l.error,
                         "PRC_STARTVCARD error! " + that.successCount + " success / " + that.errorCount + " errors");
@@ -75,6 +82,25 @@
                                 that.myResult = barcode2;
                             }
                         }
+                        // Abfrage um was für ein Header es sich handelt, #LSAD00, #LSAD01, #LSTX
+                        // Bei vcard --> direkt Interpretation der VCARD-Felder (siehe Doku)
+
+                        that.myResult = "nCg6cToWDzme+rPm2FBVwIfQVnQSwHkrzEX1blyyCopdbBKPKF/ADyAd70dR1YKsHok4rnyj4ETUwuLF8mZva57JggLr1z8STyTX6SR+n84jR/SP8HePqwya7mE2KnaOgmvLiCt0cSDrFmvWJVJ+mzzdd2wrrQn401FdcgtceJVw75vCjT8WoC5OSJpo8HzKg77/dWtmUi1wSLGD76cT8KT8NhJ2QsrBdoIWQT7ZkpYYw16WIANbWSQ+KDojYF0sy8EpXtpj5yowraPTiMFTjaJt861M28W67JcZ5TAUlRzJOaepeDqQRB70uCpuUya0ltYtYXqmfXJ7xglTUFg7/e3AGVlZCjk57JyD5nK35gtwlrm4M7LuvCMrwFihZ9tmkMo3A79W3T7JY4w7KGr/a3YCxUDe7Qzx";
+                        // base 64 convert to binary 
+                        console.log(new Buffer(that.myResult, 'base64').toString('binary').length);
+                        // decrypt
+                        var decipher = crypto.createDecipheriv('bf-ecb', new Buffer(key), '');
+                        that.myResult = decipher.update(that.myResult, "base64", "base64");
+                        // unzip
+                        var buffer = new Buffer(that.myResult, 'base64');
+                        zlib.unzip(buffer, function (err, buffer) {
+                            if (!err) {
+                                console.log(buffer.toString());
+                            }
+                        });
+                        //that.myResult += decipher.final("uft8");
+                        console.log(that.myResult);
+
                     }, function (error) {
                         that.errorCount++;
                         Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
@@ -106,5 +132,5 @@
             return infoText;
         }
     };
-module.exports = dispatcher;
+    module.exports = dispatcher;
 })();

@@ -52,12 +52,13 @@
         inputBorder: 1,
         odata: {
             https: false,
+            //hostName: "testmain.westeurope.cloudapp.azure.com",
             hostName: "deimos.convey.de",
-            onlinePort: 8080,
+            onlinePort: 80,
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
-            login: "gilbert@convey.de",
-            password: "blabla",
+            login: "hung@convey.de",
+            password: "test",
             registerPath: "odata_register", // serviceRoot register requests
             registerLogin: "AppRegister",
             registerPassword: "6530bv6OIUed3",

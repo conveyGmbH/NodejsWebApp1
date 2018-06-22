@@ -10,7 +10,7 @@
 
     var subscriptionKey = "a12ee952460d409f9f66d1536dd97318";
     var sourceImageUrl = "http://www.prinux.com/wp-content/uploads/2015/12/4Schriftarten.jpg";
-    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr";
+    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr?detectOrientation=true";
     var UUID = require("uuid-js");
     var b64js = require("base64-js");
 
