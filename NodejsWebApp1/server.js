@@ -58,7 +58,7 @@
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
             login: "hung@convey.de",
-            password: "test",
+            password: "blabla",
             registerPath: "odata_register", // serviceRoot register requests
             registerLogin: "AppRegister",
             registerPassword: "6530bv6OIUed3",
