@@ -45,7 +45,7 @@
             accentColor: "#ff3c00"
         },
         showAppBkg: false,
-        logEnabled: true,
+        logEnabled: false,
         logLevel: 3,
         logGroup: false,
         logNoStack: true,
@@ -57,7 +57,7 @@
             onlinePort: 80,
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
-            login: "hung@convey.de",
+            login: "gilbert@convey.de",
             password: "blabla",
             registerPath: "odata_register", // serviceRoot register requests
             registerLogin: "AppRegister",
@@ -95,9 +95,9 @@
     */
     var workLoop = new WorkerService.WorkLoop([
         //{ name: "selectMitarbeiter", count: 100 },
-        //"selectVeranstaltung",
+        //"selectVeranstaltung"
         //{ name: "selectKontakt", count: 100 }//,
-        //"callOcr"
+       "callOcr",
         //"xhrRequest"
         "bcrService"
     ], port);

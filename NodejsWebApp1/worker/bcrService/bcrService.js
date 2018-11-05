@@ -10,8 +10,9 @@
 
     var UUID = require("uuid-js");
     var b64js = require("base64-js");
-    //var zlib = require("zlib");
-   // var polyfills = require("mdn-polyfills/String.prototype.startsWith");
+    var zlib = require("zlib");
+    var vCard = require("vcard-parser");
+    // var polyfills = require("mdn-polyfills/String.prototype.startsWith");
 
     var crypto = require("crypto");
     var algorithm = "bf-ecb";
@@ -41,7 +42,6 @@
             var startOk = false;
             var finishedOk = false;
             var myResult = "";
-            var vCard = "";
             var myvCardResult = "";
             var name = "";
 
@@ -49,7 +49,8 @@
             var vorname = "";
             var weiterename = "";
             var geschlecht = "";
-
+            var anrede = null;
+            var academicTitle = "";
             var companyname = "";
 
             var poBox = "";
@@ -61,53 +62,76 @@
             var country = "";
 
             var telefone = "";
+            var teleFax = "";
             var email = "";
             var url = "";
             var title = "";
 
-            var dataVCard = {};
+            var dataVCard = null; // {}
             var importcardscanid = 0;
             //var cardscanbulkid = 0;
-            //var dataImportCardscan = {};
+            var dataImportCardscan = {};
+            var dataImportCardscanVcard = null;
             var that = this;
             var pAktionStatus = "VCARD_START" + this.ocrUuid; //"OCR_START" + this.ocrUuid;
 
-            var ret = AppData.call("PRC_STARTVCARD", {
-                pAktionStatus: pAktionStatus
-            },
-            function (json) {
-                Log.print(Log.l.trace, "PRC_STARTVCARD success!");
-                startOk = true;
-            },
-            function (error) {
-                that.errorCount++;
-                Log.print(Log.l.error,
-                    "PRC_STARTVCARD error! " + that.successCount + " success / " + that.errorCount + " errors");
-                that.timestamp = new Date();
-            }).then(function selectimportCardscanODataView() {
-                Log.call(Log.l.trace, "bcrService.", "pAktionStatus=" + pAktionStatus);
-                if (!startOk) {
-                    Log.ret(Log.l.trace, "PRC_STARTVCARD failed!");
-                    return WinJS.Promise.as();
-                }
-                if (!that._importCardscan_ODataView) {
+            var ret = AppData.call("PRC_STARTVCARD",
+                {
+                    pAktionStatus: pAktionStatus
+                },
+                function (json) {
+                    Log.print(Log.l.trace, "PRC_STARTVCARD success!");
+                    startOk = true;
+                },
+                function (error) {
                     that.errorCount++;
+                    Log.print(Log.l.error,
+                        "PRC_STARTVCARD error! " + that.successCount + " success / " + that.errorCount + " errors");
                     that.timestamp = new Date();
-                    Log.ret(Log.l.error, "_importCardscan_ODataView not initialized! " + that.successCount + " success / " + that.errorCount + " errors");
-                    return WinJS.Promise.as();
-                }
-                Log.ret(Log.l.trace);
-                return that._importCardscan_ODataView.select(function (json) {
-                    if (json && json.d && json.d.results && json.d.results.length > 0) {
-                        importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
-                        Log.print(Log.l.trace, "importcardscanid=" + importcardscanid);
-                        var barcode2 = json.d.results[0].Barcode2;
-                        if (barcode2) {
-                            myResult = barcode2;
-                        }
+                }).then(function selectimportCardscanODataView() {
+                    Log.call(Log.l.trace, "bcrService.", "pAktionStatus=" + pAktionStatus);
+                    if (!startOk) {
+                        Log.ret(Log.l.trace, "PRC_STARTVCARD failed!");
+                        return WinJS.Promise.as();
                     }
+                    if (!that._importCardscan_ODataView) {
+                        that.errorCount++;
+                        that.timestamp = new Date();
+                        Log.ret(Log.l.error,
+                            "_importCardscan_ODataView not initialized! " +
+                            that.successCount +
+                            " success / " +
+                            that.errorCount +
+                            " errors");
+                        return WinJS.Promise.as();
+                    }
+                    Log.ret(Log.l.trace);
+                    return that._importCardscan_ODataView.select(function (json) {
+                        Log.print(Log.l.trace, "importCardscan_ODataView: success!");
+                        if (json && json.d && json.d.results && json.d.results.length > 0) {
+                            importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
+                            Log.print(Log.l.trace, "importcardscanid=" + importcardscanid);
+                            var barcode2Result = json.d.results[0].Barcode2;
+                            dataImportCardscanVcard = json.d.results[0];
+                            if (barcode2Result) {
+                                myResult = barcode2Result;
+                            }
+                        }
+
+                        return WinJS.Promise.as();
+                    },
+                        function (error) {
+                            that.errorCount++;
+                            Log.print(Log.l.error,
+                                "select error! " + that.successCount + " success / " + that.errorCount + " errors");
+                            that.timestamp = new Date();
+                        },
+                        {
+                            Button: pAktionStatus
+                        });
+                }).then(function () {
                     if (myResult.substr(0, "#LSAD01".length) === "#LSAD01") {
-                        myResult = myResult.substring("#LSAD01".length, that.myResult.length);
+                        myResult = myResult.substring("#LSAD01".length, myResult.length);
                         console.log(myResult);
                         console.log(new Buffer(myResult, 'base64').toString('binary').length);
 
@@ -116,159 +140,205 @@
                         myResult = decipher.update(myResult, "base64", "base64");
                         // unzip
                         var buffer = new Buffer(myResult, 'base64');
-                        return zlib.unzip(buffer, function (err, buffer) {
-                            if (!err) {
-                                //flag für ist entschlüsselt und unzip
-                                dataVCard = buffer.toString();
-                                finishedOk = true;
-                            } else {
-                                finishedOk = false;
-                            }
-                            return WinJS.Promise.as();
+                        return new WinJS.Promise(function (complete, error) {
+                            zlib.unzip(buffer,
+                                function (err, buffer) {
+                                    if (!err) {
+                                        //flag für ist entschlüsselt und unzip
+                                        dataVCard = buffer.toString();
+                                        finishedOk = true;
+                                        complete();
+                                    } else {
+                                        finishedOk = false;
+                                        error();
+                                    }
+                                    return WinJS.Promise.as();
+                                });
                         });
                     }
                     return WinJS.Promise.as();
-                }, function (error) {
-                    that.errorCount++;
-                    Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
-                    that.timestamp = new Date();
-                }, { Button: pAktionStatus });
-            }).then(function unzipResult() {
-                Log.call(Log.l.trace, "callBcr.", "dataVCard=" + dataVCard);
-                if (myResult && myResult.substr(0, "#LSAD00".length) === "#LSAD00") {
-                    myResult = myResult.substring(7, myResult.length);
-                    var buffer = new Buffer(myResult, 'base64');
-                    Log.ret(Log.l.trace);
-                    return zlib.unzip(buffer,
-                        function(err, buffer) {
-                            if (!err) {
-                                //flag für ist unzip
-                                dataVCard = buffer.toString();
-                                finishedOk = true;
-
-                            } else {
-                                finishedOk = false;
-                            }
-                            return WinJS.Promise.as();
+                }).then(function unzipResult() {
+                    Log.call(Log.l.trace, "callBcr.", "dataVCard=" + dataVCard);
+                    if (myResult && myResult.substr(0, "#LSAD00".length) === "#LSAD00") {
+                        myResult = myResult.substring(7, myResult.length);
+                        var buffer = new Buffer(myResult, 'base64');
+                        Log.ret(Log.l.trace);
+                        //WinJS.Promise.as().then(function () {
+                        return new WinJS.Promise(function (complete, error) {
+                            zlib.unzip(buffer,
+                                function (err, buffer) {
+                                    if (!err) {
+                                        //flag für ist unzip
+                                        dataVCard = buffer.toString();
+                                        Log.call(Log.l.trace, "callBcr.", "dataVCard=" + dataVCard);
+                                        finishedOk = true;
+                                        complete();
+                                    } else {
+                                        finishedOk = false;
+                                        error();
+                                    }
+                                });
                         });
-                } else {
-                    Log.ret(Log.l.trace);
+
+                        //});
+                    } else {
+                        var tagVcardBeginn = "BEGIN:VCARD";
+                        if (myResult.substr(0, tagVcardBeginn.length) === tagVcardBeginn) {
+                            dataVCard = myResult;
+                        }
+                        Log.ret(Log.l.trace);
+                    }
                     return WinJS.Promise.as();
-                }
-            }).then(function updateImportCardscan() {
-                Log.call(Log.l.trace, "callBcr.", "dataVCard=" + dataVCard);
+                }).then(function updateImportCardscan() {
+                    Log.call(Log.l.trace, "callBcr.", "dataVCard=" + dataVCard);
+                    var card = null;
+                    //dataVCard = "BEGIN:VCARD\nVERSION:4.0\nN:Mustermann;Erika;;Dr.;\nFN:Dr. Erika Mustermann\nORG:Wikimedia\nROLE:Kommunikation\nTITLE:Redaktion &amp; Gestaltung\nPHOTO;MEDIATYPE=image/jpeg:http://commons.wikimedia.org/wiki/File:Erika_Mustermann_2010.jpg\nTEL;TYPE=work,voice;VALUE=uri:tel:+49-221-9999123\nTEL;TYPE=home,voice;VALUE=uri:tel:+49-221-1234567\nADR;TYPE=home;LABEL=" + "Heidestraße 17\n51147 Köln\nDeutschland" + "\n :;;Heidestraße 17;Köln;;51147;Germany\nEMAIL:erika@mustermann.de\nREV:20140301T221110Z\nEND:VCARD";
+                    if (dataVCard)
+                        card = vCard.parse(dataVCard);
+                    Log.print(Log.l.info, "vcard to json" + card);
+                    var tagVcardBeginn = "BEGIN:VCARD";
+                    var tagVersion3 = "VERSION:3.0";
+                    var tagVersion4 = "VERSION:4.0";
+                    var tagVcardEnd = "END:VCARD";
 
-                var tagVcard = "BEGIN:VCARD";
-                var tagVersion3 = "VERSION:3.0";
-                var tagVersion4 = "VERSION:4.0";
+                    var tagName = "N:";
+                    var tagformatedName = "FN:";
+                    var tagOrganisation = "ORG:";
+                    var tagAddress = "ADR:";
+                    var tagTelefone = "TEL:";
+                    var tagTeleFax = "TEL;TYPE=FAX";
+                    var tagEmail = "EMAIL:";
+                    var tagXGender = "X-GENDER:";
+                    var tagTitle = "TITLE:";
+                    var tagUrl = "URL:";
+                    //var tagXrefcode
+                if (card) {
+                    //object hasownproperty
+                    for (var prop in card) {
+                        if (card.hasOwnProperty(prop)) {
+                            for (var i = 0; i < card[prop].length; i++) {
+                                if (card[prop][i].value) {
+                                    console.log(card[prop][i].value);
+                                    var vCardValues = card[prop][i].value;
+                                    switch (prop) {
+                                        case "n":
+                                            console.log(vCardValues);
+                                            nachname = vCardValues[0];
+                                            vorname = vCardValues[1];
+                                            weiterename = vCardValues[2];
+                                            academicTitle = vCardValues[3];
+                                            break;
+                                        case "org":
+                                            console.log(vCardValues);
+                                            if (vCardValues.length > 1) {
+                                                for (var y = 0; y < vCardValues.length; y++) {
+                                                    companyname = companyname+vCardValues[y]+" ";
+                                                }
+                                            }
+                                            break;
+                                        case "adr":
+                                            //rowData[1]
+                                            //ignore type paramaeter
+                                            //Postfach
+                                            poBox = vCardValues[0];
+                                            extendedAddress = vCardValues[1]; // wird nicht gespeichert
+                                            street = vCardValues[2];
+                                            residence = vCardValues[3];
+                                            state = vCardValues[4];
+                                            postCode = vCardValues[5];
+                                            country = vCardValues[6];
+                                            break;
+                                        case "tel":
+                                            if (card.version[0].value < "4.0")
+                                                telefone = card["tel"][0].value;
+                                            else {
+                                                telefone = card["tel"][0].value.split(":");
+                                                telefone = telefone[1];
+                                            }
+                                            teleFax = card["tel"][1].value;
+                                            break;
+                                        case "email":
+                                            email = card["email"][0].value;
+                                            break;
+                                        case "X-GENDER":
+                                            //rowData[1]
+                                            if (card["X-GENDER"][0].value === "M" || "F") {
+                                                geschlecht = card["X-GENDER"][0].value;
+                                            }
+                                            if (geschlecht === "M") {
+                                                anrede = 1;
+                                            }
+                                            if (geschlecht === "F") {
+                                                anrede = 2;
+                                            }
 
-                var tagName = "N:";
-                var tagformatedName = "FN:";
-                var tagOrganisation = "ORG:";
-                var tagAddress = "ADR:";
-                var tagTelefone = "TEL:";
-                var tagTeleFax = "TEL;TYPE=FAX";
-                var tagEmail = "EMAIL:";
-                var tagXGender = "X-GENDER:";
-                var tagTitle = "TITLE:";
-                var tagUrl = "URL:";
-                //var tagXrefcode
-                if (dataVCard) {
-                    var splittedData = dataVCard.split("\n");
-                    for (var i = 0; i < splittedData.length; i++) {
-                        //row data
-                        var rowData = splittedData[i].split(":");
-                        //split ;
-                        var tmp = rowData[1].split(";");
-                        switch (rowData[0] + ":") {
-                            case tagName:
-                                name = rowData[1];
-                                nachname = tmp[0];
-                                vorname = tmp[1];
-                                weiterename = tmp[2];
-                                geschlecht = tmp[3];
-                                break;
-
-                            case tagformatedName:
-                                // formatierte Name
-                                //ignore
-                                //rowData[1]
-                                break;
-                            case tagOrganisation:
-                                companyname = rowData[1];
-                                break;
-                            case tagAddress:
-                                //rowData[1]
-                                poBox = tmp[0];
-                                extendedAddress = tmp[1];
-                                street = tmp[2];
-                                residence = tmp[3];
-                                state = tmp[4];
-                                postCode = tmp[5];
-                                country = tmp[6];
-                                break;
-                            case tagTelefone:
-                                telefone = rowData[1];
-                                break;
-                            case tagTeleFax:
-                                email = rowData[1];
-                                break;
-                            case tagEmail:
-                                email = rowData[1];
-                                break;
-                            case tagXGender:
-                                //rowData[1]
-                                break;
-                            case tagTitle:
-                                title = rowData[1];
-                                break;
-                            case tagUrl:
-                                url = rowData[1];
-                                break;
-                            default:
+                                            //xgender = rowData[1];
+                                            break;
+                                        case "title":
+                                            title = card["title"][0].value;
+                                            break;
+                                        case "url":
+                                            url = card["url"][0].value;
+                                            break;
+                                        default:
+                                        Log.print(Log.l.info, "IGNORE DATA");
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                var dataImportCardscanVcard = {
-                    FIRSTNAME: vorname,
-                    LASTNAME: nachname,
-                    TITLE: title,
-                    COMPANY: companyname,
-                    STREETADDRESS: street,
-                    CITY: residence,
-                    STATE: state,
-                    POSTALCODE: postCode,
-                    COUNTRY: country,
-                    PHONE: telefone,
-                    FAX: telefone,
-                    EMAIL: email,
-                    WEBSITE: url,
-                    MOBILEPHONE: telefone
-                }; //that.myvCardResult
-                //Log.print(Log.l.info, "dataImportCardscanVcard=" + that.myvCardResult);
-                if (!importcardscanid) {
-                    Log.ret(Log.l.trace, "no record found!");
-                    return WinJS.Promise.as();
-                }
-                if (dataImportCardscanVcard !== {}) {
-                    pAktionStatus = "OCR_DONE";
-                } else {
-                    pAktionStatus = "OCR_ERROR";
-                }
-                dataImportCardscanVcard.Button = pAktionStatus;
-                dataImportCardscanVcard.SCANTS = null;
-                Log.ret(Log.l.trace);
-                return that._importCardscan_ODataView.update(function (json) {
-                    that.successCount++;
-                    Log.print(Log.l.info, "_importCardscan_ODataView update: success! " + that.successCount + " success / " + that.errorCount + " errors");
-                    that.timestamp = new Date();
-                }, function (error) {
-                    that.errorCount++;
-                    Log.print(Log.l.error, "_importCardscan_ODataView error! " + that.successCount + " success / " + that.errorCount + " errors");
-                    that.timestamp = new Date();
-                }, importcardscanid, dataImportCardscanVcard);
-                //return WinJS.Promise.as();
-            });
+                //that.myvCardResult
+                    Log.print(Log.l.info, "dataImportCardscanVcard=" + dataImportCardscanVcard);
+                    if (!importcardscanid) {
+                        Log.ret(Log.l.trace, "no record found!");
+                        return WinJS.Promise.as();
+                    }
+                    if (dataImportCardscanVcard !== {}) {
+                        pAktionStatus = "VCARD_DONE";
+                    } else {
+                        pAktionStatus = "VCARD_ERROR";
+                    }
+                    dataImportCardscanVcard.FIRSTNAME = vorname;
+                    dataImportCardscanVcard.LASTNAME = nachname;
+                    dataImportCardscanVcard.MIDDLENAME = weiterename;
+                    dataImportCardscanVcard.NAME = vorname + " " + nachname;
+                    dataImportCardscanVcard.NAMEPREFIX = academicTitle;
+                    dataImportCardscanVcard.TITLE = title;
+                    dataImportCardscanVcard.COMPANY = companyname;
+                    dataImportCardscanVcard.STREETADDRESS = street;
+                    dataImportCardscanVcard.CITY = residence;
+                    dataImportCardscanVcard.POSTALCODE = postCode;
+                    dataImportCardscanVcard.COUNTRY = country;
+                    dataImportCardscanVcard.PHONE = telefone;
+                    dataImportCardscanVcard.FAX = teleFax;
+                    dataImportCardscanVcard.EMAIL = email;
+                    dataImportCardscanVcard.WEBSITE = url;
+                    dataImportCardscanVcard.INITAnredeID = anrede;
+
+                    if (dataVCard !== {}) {
+                        //dataImportCardscanVcard.OTHER = that.dataVCard;
+                        //return WinJS.Promise.as();
+                    }
+
+                    dataImportCardscanVcard.Button = pAktionStatus;
+                    dataImportCardscanVcard.SCANTS = null;
+                    Log.ret(Log.l.trace);
+                    return that._importCardscan_ODataView.update(function (json) {
+                        that.successCount++;
+                        Log.print(Log.l.info, "_importCardscan_ODataView update: success! " + that.successCount + " success / " + that.errorCount + " errors");
+                        that.timestamp = new Date();
+                    }, function (error) {
+                        that.errorCount++;
+                        Log.print(Log.l.error,
+                            "_importCardscan_ODataView error! " +
+                            that.successCount +
+                            " success / " +
+                            that.errorCount +
+                            " errors");
+                        that.timestamp = new Date();
+                    }, importcardscanid, dataImportCardscanVcard);
+                });
             return ret;
         },
 

@@ -64,7 +64,7 @@
             if (this.timestamp) {
                 infoText += "\n" + this.timestamp.toLocaleTimeString();
             }
-            Log.call(Log.l.trace, "mitarbeiterSelect.");
+            Log.call(Log.l.trace, "veranstaltungSelect.");
             for (var i = 0; i < this.results.length; i++) {
                 infoText += "\n" + "[" + i + "]: " + this.results[i];
             }
