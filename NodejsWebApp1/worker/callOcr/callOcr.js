@@ -9,8 +9,7 @@
     "use strict";
 
     var subscriptionKey = "a12ee952460d409f9f66d1536dd97318";
-    var languageDetection = "&language=unk";
-    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v2.0/ocr?detectOrientation=true"; //&language=unk
+    var uriBase = "https://westeurope.api.cognitive.microsoft.com/vision/v1.0/ocr?detectOrientation=true";
     var UUID = require("uuid-js");
     var b64js = require("base64-js");
 
@@ -44,12 +43,11 @@
                 }
             };
             var startOk = false;
-            var finishedOk = false;
             var myResult = "";
             var importcardscanid = 0;
             var cardscanbulkid = 0;
+            var languageCode = "";
             var dataImportCardscan = {};
-            var languageCode=null;
             var that = this;
             var pAktionStatus = "OCR_START" + this.ocrUuid; //"OCR_START" + this.ocrUuid;
             Log.call(Log.l.trace, "callOcr.");
@@ -76,6 +74,7 @@
                 }
                 Log.ret(Log.l.trace);
                 return that._importCardscanView20507.select(function (json) {
+                    Log.print(Log.l.trace, "importCardscanView20507: success!");
                     if (json && json.d && json.d.results && json.d.results.length > 0) {
                         importcardscanid = json.d.results[0].IMPORT_CARDSCANVIEWID;
                         Log.print(Log.l.trace, "importcardscanid=" + importcardscanid);
@@ -86,6 +85,7 @@
                         }
                     }
                 }, function (error) {
+                    Log.print(Log.l.error, "select error=" + AppData.getErrorMsgFromResponse(error));
                     that.errorCount++;
                     Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
                     that.timestamp = new Date();
@@ -99,11 +99,11 @@
                 if (!options.data) {
                     that.errorCount++;
                     that.timestamp = new Date();
-                    Log.ret(Log.l.error, "no data returned! " + that.successCount + " success / " + that.errorCount + " errors");
+                    Log.ret(Log.l.trace, "no data returned! " + that.successCount + " success / " + that.errorCount + " errors");
                     return WinJS.Promise.as();
                 }
                 Log.ret(Log.l.trace);
-                return WinJS.xhr(options).done(function (response) {
+                return WinJS.xhr(options).then(function (response) {
                     var err;
                     Log.print(Log.l.trace, "POST success!");
                     try {
@@ -113,15 +113,16 @@
                             for (var i = 0; i < myresultJson.regions.length; i++) {
                                 for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
                                     for (var k = 0; k < myresultJson.regions[i].lines[j].words.length; k++) {
+                                        var myOuterBoundingBox = myresultJson.regions[i].lines[j].boundingBox;
                                         var myBoundingBox = myresultJson.regions[i].lines[j].words[k].boundingBox;
                                         var myNewboundingBox = myBoundingBox.split(",");
+                                        var myNewOuterboundingBox = myOuterBoundingBox.split(",");
                                         var x = parseInt(myNewboundingBox[0]);
                                         var y = parseInt(myNewboundingBox[1]);
                                         var width = parseInt(myNewboundingBox[2]);
-                                        var height = parseInt(myNewboundingBox[3]);
+                                        var height = parseInt(myNewOuterboundingBox[3]);
                                         var lfHeight = 15;
                                         var text = (myresultJson.regions[i].lines[j].words[k].text);
-
                                         if (importcardscanid && x && y && width && height && text) {
                                             myResult = myResult + x + "," + y + "," + width + "," + height + "," + lfHeight + "," + text + "\n";
                                         }
@@ -171,20 +172,17 @@
                         Log.print(Log.l.info, "ImportCardScanBulkVIEWID=" + json.d.ImportCardScanBulkVIEWID);
                         cardscanbulkid = json.d.ImportCardScanBulkVIEWID;
                         languageCode = json.d.LanguageCode;
-                        Log.print(Log.l.trace, "languageCode=" + languageCode);
-                        // "https://westeurope.api.cognitive.microsoft.com/vision/v2.0/ocr?detectOrientation=true&language=unk";
                         if (languageCode) {
-                            var lcode = "&language=" + languageCode;
-                            options.url = uriBase + lcode;
+                            var language = languageCode.split("-");
+                            options.url = uriBase + "&language=" + language[0];
                         }
                     }
                 }, function (error) {
                     that.errorCount++;
                     Log.print(Log.l.error, "select error! " + that.successCount + " success / " + that.errorCount + " errors");
                     that.timestamp = new Date();
-                    }, dataImportCardscanBulk);
-
-            }).then(function ocrPostRequest() {
+                }, dataImportCardscanBulk);
+                }).then(function ocrPostRequest() {
                     Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
                     if (!importcardscanid) {
                         Log.ret(Log.l.trace, "no record found!");
@@ -201,48 +199,50 @@
                         return WinJS.Promise.as();
                     }
                     Log.ret(Log.l.trace);
-                    //if (languageCode) {
-                        return WinJS.xhr(options).then(function (response) {
-                            var err;
-                            Log.print(Log.l.trace, "POST success!");
-                            try {
-                                var obj = response;
-                                var myresultJson = JSON.parse(response.responseText);
-                                if (myresultJson && myresultJson.regions.length > 0) {
-                                    for (var i = 0; i < myresultJson.regions.length; i++) {
-                                        for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
-                                            for (var k = 0; k < myresultJson.regions[i].lines[j].words.length; k++) {
-                                                var myBoundingBox = myresultJson.regions[i].lines[j].words[k].boundingBox;
-                                                var myNewboundingBox = myBoundingBox.split(",");
-                                                var x = parseInt(myNewboundingBox[0]);
-                                                var y = parseInt(myNewboundingBox[1]);
-                                                var width = parseInt(myNewboundingBox[2]);
-                                                var height = parseInt(myNewboundingBox[3]);
-                                                var lfHeight = 15;
-                                                var text = (myresultJson.regions[i].lines[j].words[k].text);
+                    return WinJS.xhr(options).then(function (response) {
+                        var err;
+                        myResult = "";
+                        Log.print(Log.l.trace, "POST success!");
+                        try {
+                            var obj = response;
+                            var myresultJson = JSON.parse(response.responseText);
+                            if (myresultJson && myresultJson.regions.length > 0) {
+                                for (var i = 0; i < myresultJson.regions.length; i++) {
+                                    for (var j = 0; j < myresultJson.regions[i].lines.length; j++) {
+                                        for (var k = 0; k < myresultJson.regions[i].lines[j].words.length; k++) {
+                                            var myOuterBoundingBox = myresultJson.regions[i].lines[j].boundingBox;
+                                            var myBoundingBox = myresultJson.regions[i].lines[j].words[k].boundingBox;
+                                            var myNewboundingBox = myBoundingBox.split(",");
+                                            var myNewOuterboundingBox = myOuterBoundingBox.split(",");
+                                            var x = parseInt(myNewboundingBox[0]);
+                                            var y = parseInt(myNewboundingBox[1]);
+                                            var width = parseInt(myNewboundingBox[2]);
+                                            var height = parseInt(myNewOuterboundingBox[3]);
+                                            var lfHeight = 15;
+                                            var text = (myresultJson.regions[i].lines[j].words[k].text);
 
-                                                if (importcardscanid && x && y && width && height && text) {
-                                                    myResult = myResult + x + "," + y + "," + width + "," + height + "," + lfHeight + "," + text + "\n";
-                                                }
+                                            if (importcardscanid && x && y && width && height && text) {
+                                                myResult = myResult + x + "," + y + "," + width + "," + height + "," + lfHeight + "," + text + "\n";
                                             }
                                         }
                                     }
                                 }
-                                if (myResult) {
-                                    myResult = myResult.replace(/\n$/, " ");
-                                }
-                            } catch (exception) {
-                                that.errorCount++;
-                                Log.print(Log.l.error, "resource parse error " + (exception && exception.message) + that.successCount + " success / " + that.errorCount + " errors");
-                                that.timestamp = new Date();
-                                err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
                             }
-                            return WinJS.Promise.as();
-                        }, function (errorResponse) {
+                            if (myResult) {
+                                myResult = myResult.replace(/\n$/, " ");
+                            }
+                        } catch (exception) {
                             that.errorCount++;
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "resource parse error " + (exception && exception.message) + that.successCount + " success / " + that.errorCount + " errors");
                             that.timestamp = new Date();
-                        });
+                            err = { status: 500, statusText: "data parse error " + (exception && exception.message) };
+                        }
+                        return WinJS.Promise.as();
+                    }, function (errorResponse) {
+                        that.errorCount++;
+                        Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                        that.timestamp = new Date();
+                    });
                 }).then(function importCardscanBulk() {
                     Log.call(Log.l.trace, "callOcr.", "importcardscanid=" + importcardscanid);
                     if (!importcardscanid) {
@@ -264,11 +264,16 @@
                         OCRData: myResult
                     };
                     Log.ret(Log.l.trace);
-                    return that._importCardscanBulk_ODataView.update(function (json) {
+                    return that._importCardscanBulk_ODataView.insert(function (json) {
                         Log.print(Log.l.info, "importcardscanBulk insert: success!");
                         if (json && json.d) {
                             Log.print(Log.l.info, "ImportCardScanBulkVIEWID=" + json.d.ImportCardScanBulkVIEWID);
                             cardscanbulkid = json.d.ImportCardScanBulkVIEWID;
+                            languageCode = json.d.LanguageCode;
+                            if (languageCode) {
+                                var language = languageCode.split("-");
+                                options.url = uriBase + "&language=" + language[0];
+                            }
                         }
                     }, function (error) {
                         that.errorCount++;
@@ -331,7 +336,7 @@
                     that.errorCount++;
                     Log.print(Log.l.error, "_importCardscan_ODataView error! " + that.successCount + " success / " + that.errorCount + " errors");
                     that.timestamp = new Date();
-                    }, importcardscanid, dataImportCardscan);
+                }, importcardscanid, dataImportCardscan);
             });
             Log.ret(Log.l.trace);
             return ret;

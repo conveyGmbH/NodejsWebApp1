@@ -51,14 +51,14 @@
         logNoStack: true,
         inputBorder: 1,
         odata: {
-            https: false,
+            https: true,
             //hostName: "testmain.westeurope.cloudapp.azure.com",
-            hostName: "deimos.convey.de",
-            onlinePort: 80,
+            hostName: "lstest.convey.de", //"deimos.convey.de"
+            onlinePort: 443, //8090
             urlSuffix: null,
             onlinePath: "odata_online", // serviceRoot online requests
-            login: "gilbert@convey.de",
-            password: "blabla",
+            login: "CloudUser", // adminhx  CloudUser
+            password: "fcmV0936tn45T!gn9", // adminhx  6hbamVbQxDbSDLEC
             registerPath: "odata_register", // serviceRoot register requests
             registerLogin: "AppRegister",
             registerPassword: "6530bv6OIUed3",
@@ -95,11 +95,13 @@
     */
     var workLoop = new WorkerService.WorkLoop([
         //{ name: "selectMitarbeiter", count: 100 },
-        //"selectVeranstaltung"
+        //"selectVeranstaltung",
+        //"selectKontakt"
         //{ name: "selectKontakt", count: 100 }//,
        "callOcr",
         //"xhrRequest"
-        "bcrService"
+        "bcrService",
+        "dbSyncService"
     ], port);
 
     /*

@@ -14,6 +14,7 @@
             this.successCount = 0;
             this.errorCount = 0;
             this.timestamp = null;
+            this._synchronisationsjobVIEW = AppData.getFormatView("Synchronisationsjob", 0,false);
             this.dbEngine = AppData.getFormatView("Kontakt", 20432, false);
             this.results = [];
             this.waitTimeMs = 200 + Math.random() * 2000;
@@ -25,8 +26,8 @@
             var ret;
             var that = this;
             Log.call(Log.l.trace, "kontaktSelect.");
-            if (this.dbEngine) {
-                ret = this.dbEngine.select(function(json) {
+            if (this._synchronisationsjobVIEW) {
+                ret = this._synchronisationsjobVIEW.select(function(json) {
                     that.results = [];
                     if (json && json.d && json.d.results) {
                         for (var i = 0; i < json.d.results.length; i++) {
