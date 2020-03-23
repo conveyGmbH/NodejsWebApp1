@@ -1,5 +1,4 @@
-﻿// implements the page navigaten
-// implements the page navigaten
+﻿// implements the page navigation
 /// <reference path="../../../lib/WinJS/scripts/base.js" />
 /// <reference path="../../../lib/WinJS/scripts/ui.js" />
 /// <reference path="../../../lib/convey/scripts/strings.js" />
@@ -268,6 +267,33 @@
                 nav.navigate(newLocation, event, removeBackStack);
             }
             Log.ret(Log.l.trace);
+        },
+
+        groupFromPageId: function(id) {
+            Log.call(Log.l.trace, "Application.", "id=" + id);
+            var group = null;
+            for (var i = 0; i < NavigationBar.pages.length; i++) {
+                if (NavigationBar.pages[i].id === id) {
+                    var bGroupDisabled = false;
+                    if (NavigationBar.groups && NavigationBar.groups.length > 0) {
+                        for (var j = 0; j < NavigationBar.groups.length; j++) {
+                            if (NavigationBar.groups[j] &&
+                                NavigationBar.groups[j].group === NavigationBar.pages[i].group &&
+                                NavigationBar.groups[j].disabled) {
+                                Log.print(Log.l.trace, "group=" + NavigationBar.groups[j].group + " is disabled");
+                                bGroupDisabled = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!bGroupDisabled) {
+                        group = NavigationBar.pages[i].group;
+                        break;
+                    }
+                }
+            }
+            Log.ret(Log.l.trace, group);
+            return group;
         },
 
         showDetail: function () {
@@ -622,12 +648,14 @@
                             Log.print(Log.l.u1, "calling updateLayout...");
                             ret = element.winControl.updateLayout.call(element.winControl, element);
                             Log.print(Log.l.u1, "...returned from updateLayout");
-                        } else {
+                        } else if (!element._updateLayoutPromise) {
                             Log.print(Log.l.u1, "semaphore set - try later again!");
                             var that = this;
-                            ret = WinJS.Promise.timeout(50).then(function() {
+                            element._updateLayoutPromise = WinJS.Promise.timeout(50).then(function() {
+                                element._updateLayoutPromise = null;
                                 return that.elementUpdateLayout(element);
                             });
+                            ret = element._updateLayoutPromise;
                         }
                     }
                     Log.ret(Log.l.u1, "");
@@ -799,6 +827,7 @@
                         var top = 0;
                         var width = splitViewContent.clientWidth;
                         var height = splitViewContent.clientHeight;
+                        var widthNavBar = width;
 
                         // calculate content element dimensions
                         if (this._nextMaster && !this._masterHidden) {
@@ -812,13 +841,7 @@
                         if (this._nextPage) {
                             // check for coming NavigationBar on page transitions
                             var newPageId = Application.getPageId(this._nextPage);
-                            var group = null;
-                            for (i = 0; i < NavigationBar.pages.length; i++) {
-                                if (NavigationBar.pages[i].id === newPageId) {
-                                    group = NavigationBar.pages[i].group;
-                                    break;
-                                }
-                            }
+                            var group = Application.groupFromPageId(newPageId);
                             if (group > 0 || !group && NavigationBar.data && NavigationBar.data.length > 0) {
                                 navBarVisible = true;
                             } 
@@ -826,14 +849,29 @@
                             navBarVisible = true;
                         }
                         if (navBarVisible) {
+                            navBarElement = NavigationBar.ListView && NavigationBar.ListView.listElement;
                             if (NavigationBar.orientation === "horizontal") {
-                                top += NavigationBar._horzHeight;
-                                height -= NavigationBar._horzHeight;
-                                navBarElement = NavigationBar.ListView && NavigationBar.ListView.listElement;
+                                top += NavigationBar.navHorzHeight;
+                                height -= NavigationBar.navHorzHeight;
                             } else {
-                                left += NavigationBar._vertWidth;
-                                width -= NavigationBar._vertWidth;
+                                var navVertWidthSmall = (3 * AppData.persistentStatesDefaults.navVertWidth) / 4;
+                                if (width - navVertWidthSmall > 499) {
+                                    NavigationBar.navVertWidth = AppData.persistentStatesDefaults.navVertWidth;
+                                    widthNavBar = 500;
+                                } else {
+                                    NavigationBar.navVertWidth = navVertWidthSmall;
+                                    widthNavBar = navVertWidthSmall;
+                                }
+                                left += NavigationBar.navVertWidth;
+                                width -= NavigationBar.navVertWidth;
+                                // hide page top line - now in accent color!
+                                top -= 2;
+                                height += 2;
                             }
+                        } else {
+                            // hide page top line - now in accent color!
+                            top -= 2;
+                            height += 2;
                         }
                         element.style.zIndex = "1";
                         element.style.left = left.toString() + "px";
@@ -845,57 +883,63 @@
                             contentarea.style.height = height.toString() + "px";
                             contentarea.style.width = width.toString() + "px";
                         }
+                        if (navBarElement) {
+                            if (widthNavBar > 499) {
+                                // remove class: view-size-small  
+                                WinJS.Utilities.removeClass(navBarElement, "view-size-small");
+                            } else {
+                                // add class: view-size-small    
+                                WinJS.Utilities.addClass(navBarElement, "view-size-small");
+                            }
+                            if (widthNavBar > 699) {
+                                // remove class: view-size-medium-small  
+                                WinJS.Utilities.removeClass(navBarElement, "view-size-medium-small");
+                            } else {
+                                // add class: view-size-medium-small    
+                                WinJS.Utilities.addClass(navBarElement, "view-size-medium-small");
+                            }
+                            if (widthNavBar > 899) {
+                                // remove class: view-size-medium    
+                                WinJS.Utilities.removeClass(navBarElement, "view-size-medium");
+                            } else {
+                                // add class: view-size-medium
+                                WinJS.Utilities.addClass(navBarElement, "view-size-medium");
+                            }
+                            if (widthNavBar > 1099) {
+                                // remove class: view-size-bigger
+                                WinJS.Utilities.removeClass(navBarElement, "view-size-bigger");
+                            } else {
+                                // add class: view-size-bigger
+                                WinJS.Utilities.addClass(navBarElement, "view-size-bigger");
+                            }
+                        }
                         if (width > 499) {
                             // remove class: view-size-small  
                             WinJS.Utilities.removeClass(element, "view-size-small");
-                            if (navBarElement) {
-                                WinJS.Utilities.removeClass(navBarElement, "view-size-small");
-                            }
                         } else {
                             // add class: view-size-small    
                             WinJS.Utilities.addClass(element, "view-size-small");
-                            if (navBarElement) {
-                                WinJS.Utilities.addClass(navBarElement, "view-size-small");
-                            }
                         }
                         if (width > 699) {
                             // remove class: view-size-medium-small  
                             WinJS.Utilities.removeClass(element, "view-size-medium-small");
-                            if (navBarElement) {
-                                WinJS.Utilities.removeClass(navBarElement, "view-size-medium-small");
-                            }
                         } else {
                             // add class: view-size-medium-small    
                             WinJS.Utilities.addClass(element, "view-size-medium-small");
-                            if (navBarElement) {
-                                WinJS.Utilities.addClass(navBarElement, "view-size-medium-small");
-                            }
                         }
                         if (width > 899) {
                             // remove class: view-size-medium    
                             WinJS.Utilities.removeClass(element, "view-size-medium");
-                            if (navBarElement) {
-                                WinJS.Utilities.removeClass(navBarElement, "view-size-medium");
-                            }
                         } else {
                             // add class: view-size-medium
                             WinJS.Utilities.addClass(element, "view-size-medium");
-                            if (navBarElement) {
-                                WinJS.Utilities.addClass(navBarElement, "view-size-medium");
-                            }
                         }
                         if (width > 1099) {
                             // remove class: view-size-bigger
                             WinJS.Utilities.removeClass(element, "view-size-bigger");
-                            if (navBarElement) {
-                                WinJS.Utilities.removeClass(navBarElement, "view-size-bigger");
-                            }
                         } else {
                             // add class: view-size-bigger
                             WinJS.Utilities.addClass(element, "view-size-bigger");
-                            if (navBarElement) {
-                                WinJS.Utilities.addClass(navBarElement, "view-size-bigger");
-                            }
                         }
                         this.elementUpdateLayout(element);
                     }
@@ -950,7 +994,8 @@
                         fragment._beforeLoadPromise.cancel();
                     }
                     fragment._inBeforeLoadPromise = true;
-                    if (fragment._element &&
+                    if (AppBar.notifyModified &&
+                        fragment._element &&
                         fragment._element.firstElementChild &&
                         fragment._element.firstElementChild.winControl &&
                         typeof fragment._element.firstElementChild.winControl.canUnload === "function") {
@@ -1243,15 +1288,9 @@
                         newPage = nav.location;
                     }
                     if (newPage && NavigationBar.data && NavigationBar.ListView) {
-                        var group = 0;
+                        var newPageId = Application.getPageId(newPage);
+                        var group = Application.groupFromPageId(newPageId);
                         var i;
-                        for (i = 0; i < NavigationBar.pages.length; i++) {
-                            nextPage = Application.getPagePath(NavigationBar.pages[i].id);
-                            if (newPage === nextPage) {
-                                group = NavigationBar.pages[i].group;
-                                break;
-                            }
-                        }
                         if (group < 0) {
                             group = -group;
                         }
@@ -1397,14 +1436,17 @@
                     var isDisabled = false;
                     var prevPageId = Application.getPageId(nav.location);
                     var pageId = null;
+                    var group = null;
                     Log.call(Log.l.trace, "Application.PageControlNavigator.");
                     if (args && args.detail && args.detail.location) {
                         var i;
                         pageId = Application.getPageId(args.detail.location);
+                        group = Application.groupFromPageId(pageId);
                         if (NavigationBar.pages && NavigationBar.pages.length > 0) {
                             for (i = 0; i < NavigationBar.pages.length; i++) {
                                 if (NavigationBar.pages[i] &&
-                                    NavigationBar.pages[i].id === pageId) {
+                                    NavigationBar.pages[i].id === pageId &&
+                                    (!group || NavigationBar.pages[i].group === group)) {
                                     if (NavigationBar.pages[i].disabled) {
                                         Log.print(Log.l.trace, "page=" + pageId + " is disabled");
                                         isDisabled = true;
@@ -1463,6 +1505,7 @@
                             var ret;
                             Log.call(Log.l.trace, "Application.PageControlNavigator._beforenavigate.");
                             if (!(pageId === "register" || pageId === "recover" || (pageId === "account" && prevPageId === "login")) &&
+                                AppBar.notifyModified &&
                                 that._element &&
                                 that._element.firstElementChild &&
                                 that._element.firstElementChild.winControl &&
@@ -1739,14 +1782,8 @@
                             var isGroup = false;
                             Log.print(Log.l.trace, "PageControlNavigator: calling exit previous page");
                             if (NavigationBar.data && NavigationBar.ListView) {
-                                var group = 0;
-                                for (i = 0; i < NavigationBar.pages.length; i++) {
-                                    nextPage = Application.getPagePath(NavigationBar.pages[i].id);
-                                    if (args.detail.location === nextPage) {
-                                        group = NavigationBar.pages[i].group;
-                                        break;
-                                    }
-                                }
+                                var newPageId = Application.getPageId(args.detail.location);
+                                var group = Application.groupFromPageId(newPageId);
                                 if (group <= 0) {
                                     group = 1;
                                 }
@@ -1901,6 +1938,7 @@
                             var that = this;
                             WinJS.UI.Animation.enterContent(this.pageElement, animationOptions).then(function () {
                                 if (that.masterElement) {
+                                    that.masterElement.style.zIndex = "-9990";
                                     that.masterElement.style.visibility = "hidden";
                                     that.resizeMasterElement(that.masterElement);
                                 }
@@ -1920,6 +1958,7 @@
                         }
                         if (this.masterElement) {
                             this.masterElement.style.visibility = "";
+                            this.masterElement.style.zIndex = "1";
                         }
                         if (this.pageElement) {
                             var animationDistanceX = this.masterElement ? this.masterElement.clientWidth : 450;
@@ -1990,12 +2029,10 @@
                 if (!NavigationBar._listViewVert) {
                     if (!NavigationBar._listViewHorz) {
                         listOrientation = "horizontal";
+                        NavigationBar.navHorzHeight = AppData.persistentStatesDefaults.navHorzHeight;
                     } else {
                         listOrientation = "vertical";
-                        var navigationbarContainerVertical = document.querySelector(".navigationbar-container-vertical");
-                        if (navigationbarContainerVertical && navigationbarContainerVertical.style) {
-                            navigationbarContainerVertical.style.width = NavigationBar._vertWidth.toString() + "px";
-                        }
+                        NavigationBar.navVertWidth = AppData.persistentStatesDefaults.navVertWidth;
                     }
                 } else {
                     // finished
@@ -2155,6 +2192,7 @@
                             }
                             var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
                             var listControl = NavigationBar.ListView && NavigationBar.ListView.listControl;
+                            var containers, container, i, selectionBkg;
                             if (element && listControl) {
                                 // current window dimension
                                 if (this._listOrientation === "vertical") {
@@ -2166,6 +2204,22 @@
                                         }
                                         strHeight = height.toString() + "px";
                                         element.style.height = strHeight;
+                                    }
+                                    if (listControl.loadingState === "complete") {
+                                        containers = element.querySelectorAll(".win-container");
+                                        if (containers && containers.length === NavigationBar.data.length) {
+                                            for (i = 0; i < NavigationBar.data.length; i++) {
+                                                container = containers[i];
+                                                if (container) {
+                                                    selectionBkg = container.querySelector(".win-selectionbackground");
+                                                    if (selectionBkg && selectionBkg.style) {
+                                                        selectionBkg.style.backgroundColor = Colors.navigationColor;
+                                                        selectionBkg.style.opacity = 1;
+                                                    }
+                                                }
+                                            }
+
+                                        }
                                     }
                                 } else {
                                     /*
@@ -2197,12 +2251,11 @@
                                     }
                                     if (listControl.loadingState === "complete") {
                                         // calculate width for each cell
-                                        var containers = element.querySelectorAll(".win-container");
+                                        containers = element.querySelectorAll(".win-container");
                                         if (containers && containers.length === NavigationBar.data.length) {
                                             var fontWidth = width > 499 ? 10 : 7;
                                             var totalLen = 0;
                                             var maxLen = 0;
-                                            var i;
                                             var item;
                                             for (i = 0; i < NavigationBar.data.length; i++) {
                                                 item = NavigationBar.data.getAt(i);
@@ -2235,10 +2288,26 @@
                                                     } else {
                                                         widthNavigationbarItem = width / item.length;
                                                     }
-                                                    var container = containers[i];
-                                                    var strContainerWidth = widthNavigationbarItem.toString() + "px";
-                                                    if (container.style) {
-                                                        container.style.width = strContainerWidth;
+                                                    container = containers[i];
+                                                    if (container) {
+                                                        var strContainerWidth = widthNavigationbarItem.toString() + "px";
+                                                        if (container.style) {
+                                                            container.style.width = strContainerWidth;
+                                                        }
+                                                        selectionBkg = container.querySelector(".win-selectionbackground");
+                                                        if (selectionBkg && selectionBkg.style) {
+                                                            var horizontalTexts = container.querySelectorAll(".navigationbar-horizontal-text");
+                                                            if (horizontalTexts && horizontalTexts[0]) {
+                                                                var textElement = horizontalTexts[0].querySelector(".navigationbar-inner-text");
+                                                                if (textElement && textElement.offsetWidth > 0 && selectionBkg && selectionBkg.style) {
+                                                                    selectionBkg.style.left = "calc(50% - " + (textElement.offsetWidth / 2).toString() + "px)";
+                                                                    selectionBkg.style.right = "";
+                                                                    selectionBkg.style.width = textElement.offsetWidth.toString() + "px";
+                                                                    selectionBkg.style.backgroundColor = Colors.navigationColor;
+                                                                    selectionBkg.style.opacity = 1;
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2246,7 +2315,7 @@
                                                 if (NavigationBar._orientation !== "vertical") {
                                                     var textElements = element.querySelectorAll(".navigationbar-text");
                                                     if (textElements && textElements.length > 0) {
-                                                        var horzHeight = -NavigationBar._horzHeight / 8;
+                                                        var horzHeight = -NavigationBar.navHorzHeight / 8;
                                                         var offsetIn = { top: horzHeight.toString() + "px", left: "0px" };
                                                         WinJS.UI.Animation.enterContent(textElements, offsetIn);
                                                     }
@@ -2305,42 +2374,42 @@
                 },
                 scrollIntoView: function (curIndex) {
                     Log.call(Log.l.u1, "NavigationBar.ListViewClass.");
-                    WinJS.Promise.timeout(0).then(function() {
-                        if (NavigationBar._orientation === "horizontal") {
-                            var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
-                            var control = NavigationBar.ListView && NavigationBar.ListView.listControl;
-                            if (element && control) {
-                                var containers = element.querySelectorAll(".win-container");
-                                if (containers && containers.length === NavigationBar.data.length && containers[0]) {
-                                    var surface = element.querySelector(".win-surface");
-                                    if (surface) {
-                                        var overflow = surface.clientWidth - element.clientWidth;
-                                        if (overflow > 0) {
-                                            var containerWidth = containers[0].clientWidth;
-                                            var scrollPosition = curIndex * containerWidth - containerWidth / 2;
-                                            if (scrollPosition < 0) {
-                                                scrollPosition = 0;
-                                            } else if (scrollPosition > overflow) {
-                                                scrollPosition = overflow;
-                                            }
-                                            if (control.scrollPosition !== scrollPosition) {
-                                                var prevScrollPosition = control.scrollPosition;
-                                                var animationDistanceX = scrollPosition - prevScrollPosition;
-                                                var animationOptions = { top: "0px", left: animationDistanceX.toString() + "px" };
-                                                control.scrollPosition = scrollPosition;
-                                                WinJS.UI.Animation.enterContent(surface, animationOptions);
-                                            }
+                    if (NavigationBar._orientation === "horizontal" && !this._scrollSynced) {
+                        this._scrollSynced = true;
+                        var element = NavigationBar.ListView && NavigationBar.ListView.listElement;
+                        var control = NavigationBar.ListView && NavigationBar.ListView.listControl;
+                        if (element && control) {
+                            var containers = element.querySelectorAll(".win-container");
+                            if (containers && containers.length === NavigationBar.data.length && containers[0]) {
+                                var surface = element.querySelector(".win-surface");
+                                if (surface) {
+                                    var overflow = surface.clientWidth - element.clientWidth;
+                                    if (overflow > 0) {
+                                        var containerWidth = containers[0].clientWidth;
+                                        var scrollPosition = Math.floor(curIndex * containerWidth - containerWidth / 4);
+                                        if (scrollPosition < 0) {
+                                            scrollPosition = 0;
+                                        } else if (scrollPosition > overflow) {
+                                            scrollPosition = overflow;
+                                        }
+                                        if (control.scrollPosition !== scrollPosition) {
+                                            var prevScrollPosition = control.scrollPosition;
+                                            var animationDistanceX = (scrollPosition - prevScrollPosition) / 2;
+                                            var animationOptions = { top: "0px", left: animationDistanceX.toString() + "px" };
+                                            control.scrollPosition = scrollPosition;
+                                            WinJS.UI.Animation.enterContent(surface, animationOptions);
                                         }
                                     }
                                 }
                             }
                         }
-                    });
+                    }
                     Log.ret(Log.l.u1);
                 },
                 // event handler for selectionchanged event
                 onSelectionChanged: function(eventInfo) {
                     Log.call(Log.l.trace, "NavigationBar.ListViewClass.");
+                    var that = this;
                     // Handle Page Selection
                     var listControl = this.listControl;
                     if (listControl && listControl.selection && NavigationBar.data) {
@@ -2353,8 +2422,8 @@
                                 if (NavigationBar._listViewVert &&
                                     NavigationBar._listViewVert.listControl !== listControl) {
                                     if (NavigationBar.orientation === "horizontal") {
+                                        that._scrollSynced = false;
                                         NavigationBar._listViewVert.setSelIndex(curIndex);
-                                        NavigationBar.ListView.scrollIntoView(curIndex);
                                     } else {
                                         // ignore selectionchanged if not active list
                                         return;
@@ -2374,7 +2443,11 @@
                                 }
                                 var item = NavigationBar.data.getAt(curIndex);
                                 if (item) {
-                                    Application.navigateById(item.id);
+                                    if (Application.navigator._nextPage === Application.getPagePath(item.id)) {
+                                        Log.print(Log.l.trace, "just navigating to page location=" + item.id);
+                                    } else {
+                                        Application.navigateById(item.id);
+                                    }
                                 }
                             });
                         }
@@ -2390,7 +2463,7 @@
                         if (selectionCount === 1) {
                             // Only one item is selected, check for same selection
                             listControl.selection.getItems().done(function(items) {
-                                if (items[0].index === index) {
+                                if (items && items[0] && items[0].index === index) {
                                     // already selected!
                                     return;
                                 } else if (listControl && listControl.selection) {
@@ -2416,6 +2489,7 @@
                     }
                     Log.ret(Log.l.trace);
                 },
+                _scrollSynced: false,
                 // anchor for element istself
                 _element: null,
                 // orientation of list element
@@ -2449,10 +2523,13 @@
                     var horzHeight, vertWidth;
                     var inElement, outElement;
                     if (NavigationBar._inOrientationChange > 0) {
-                        WinJS.Promise.timeout(50).then(function () {
-                            // now do complete resize later!
-                            Application.navigator._resized();
-                        });
+                        if (!NavigationBar._resizedPromise) {
+                            NavigationBar._resizedPromise = WinJS.Promise.timeout(50).then(function () {
+                                NavigationBar._resizedPromise = null;
+                                // now do complete resize later!
+                                Application.navigator._resized();
+                            });
+                        }
                         Log.ret(Log.l.u1, "semaphore set");
                         return;
                     }
@@ -2463,28 +2540,32 @@
                         if (newOrientation === "vertical") {
                             if (NavigationBar._listViewHorz &&
                                 NavigationBar._listViewHorz.listElement) {
-                                horzHeight = -NavigationBar._horzHeight / 2;
+                                horzHeight = -NavigationBar.navHorzHeight / 2;
                                 offsetOut = { top: horzHeight.toString() + "px", left: "0px" };
                                 thatOut = NavigationBar._listViewHorz;
+                                Log.print(Log.l.trace, "hide NavigationBar._listViewHorz");
                             }
                             if (NavigationBar._listViewVert &&
                                 NavigationBar._listViewVert.listElement) {
-                                vertWidth = -NavigationBar._vertWidth;
+                                vertWidth = -NavigationBar.navVertWidth;
                                 offsetIn = { top: "0px", left: vertWidth.toString() + "px" };
                                 thatIn = NavigationBar._listViewVert;
+                                Log.print(Log.l.trace, "show NavigationBar._listViewVert");
                             }
                         } else {
                             if (NavigationBar._listViewVert &&
                                 NavigationBar._listViewVert.listElement) {
-                                vertWidth = -NavigationBar._vertWidth;
+                                vertWidth = -NavigationBar.navVertWidth;
                                 offsetOut = { top: "0px", left: vertWidth.toString() + "px" };
                                 thatOut = NavigationBar._listViewVert;
+                                Log.print(Log.l.trace, "hide NavigationBar._listViewVert");
                             }
                             if (NavigationBar._listViewHorz &&
                                 NavigationBar._listViewHorz.listElement) {
-                                horzHeight = -NavigationBar._horzHeight / 2;
+                                horzHeight = -NavigationBar.navHorzHeight / 2;
                                 offsetIn = { top: horzHeight.toString() + "px", left: "0px" };
                                 thatIn = NavigationBar._listViewHorz;
+                                Log.print(Log.l.trace, "show NavigationBar._listViewHorz");
                             }
                         }
                         if (thatOut && offsetOut) {
@@ -2497,7 +2578,6 @@
                                     outElement.style.visibility = "hidden";
                                     outElement.style.zIndex = -thatOut._zIndex;
                                     NavigationBar._inOrientationChange--;
-                                    NavigationBar.updateOrientation();
                                     if (NavigationBar.ListView) {
                                         NavigationBar.ListView.updateLayout();
                                     }
@@ -2521,13 +2601,13 @@
                         if (NavigationBar._listViewHorz &&
                             NavigationBar._listViewHorz._visibility !== "hidden" &&
                             NavigationBar._listViewHorz.listElement) {
-                            horzHeight = -NavigationBar._horzHeight / 2;
+                            horzHeight = -NavigationBar.navHorzHeight / 2;
                             offsetOut = { top: horzHeight.toString() + "px", left: "0px" };
                             thatOut = NavigationBar._listViewHorz;
                         } else if (NavigationBar._listViewVert &&
                             NavigationBar._listViewVert._visibility !== "hidden" &&
                             NavigationBar._listViewVert.listElement) {
-                            vertWidth = -NavigationBar._vertWidth;
+                            vertWidth = -NavigationBar.navVertWidth;
                             offsetOut = { top: "0px", left: vertWidth.toString() + "px" };
                             thatOut = NavigationBar._listViewVert;
                         }
@@ -2754,7 +2834,7 @@
                 // change navigation bar orientation
                 NavigationBar.orientation = "horizontal";
             }
-            Log.ret(Log.l.u1, ret);
+            Log.ret(Log.l.u1, "newOrientation=" + NavigationBar.orientation + " (prevOrientation=" + ret + ")");
             return ret;
         },
         handleNavCommand: function(ev) {
@@ -2793,7 +2873,7 @@
                         var splitViewControl = splitViewRoot.winControl;
                         if (splitViewControl &&
                             splitViewControl.openedDisplayMode === WinJS.UI.SplitView.OpenedDisplayMode.overlay) {
-                            rootSplitViewPane.style.marginTop = NavigationBar._horzHeight + "px";
+                            rootSplitViewPane.style.marginTop = NavigationBar.navHorzHeight + "px";
                         } else {
                             rootSplitViewPane.style.marginTop = "0";
                         }
@@ -2949,7 +3029,8 @@
                                                             fileName: svg,
                                                             color: Colors.navigationColor,
                                                             element: svgObject,
-                                                            size: 24
+                                                            size: 24,
+                                                            strokeWidth: AppData._persistentStates.iconStrokeWidth
                                                         });
 
                                                     }
@@ -3025,10 +3106,10 @@
                     that = NavigationBar.ListView;
                 }
                 if (NavigationBar._orientation === "vertical") {
-                    var vertWidth = -NavigationBar._vertWidth;
+                    var vertWidth = -NavigationBar.navVertWidth;
                     offset = { top: "0px", left: vertWidth.toString() + "px" };
                 } else {
-                    var horzHeight = -NavigationBar._horzHeight;
+                    var horzHeight = -NavigationBar.navHorzHeight;
                     offset = { top: horzHeight.toString() + "px", left: "0px" };
                 }
                 var reloadNavigationData = function () {
@@ -3106,6 +3187,38 @@
                 return NavigationBar._data;
             }
         },
+        navVertWidth: {
+            get: function() {
+                return NavigationBar._navVertWidth;
+            },
+            set: function (navVertWidth) {
+                if (navVertWidth === NavigationBar._navVertWidth) {
+                    // extra ignored
+                } else {
+                    NavigationBar._navVertWidth = navVertWidth;
+                    Colors.changeCSS(".navigationbar-container-vertical", "width", navVertWidth.toString() + "px !important");
+                    /*
+                    var navigationbarContainerVertical = document.querySelector(".navigationbar-container-vertical");
+                    if (navigationbarContainerVertical && navigationbarContainerVertical.style) {
+                        navigationbarContainerVertical.style.width = navVertWidth.toString() + "px";
+                    }
+                     */
+                }
+            }
+        },
+        navHorzHeight: {
+            get: function () {
+                return NavigationBar._navHorzHeight;
+            },
+            set: function (navHorzHeight) {
+                if (NavigationBar._navHorzHeight === navHorzHeight) {
+                    // extra ignored
+                } else {
+                    NavigationBar._navHorzHeight = navHorzHeight;
+                    Colors.changeCSS(".navigationbar-container-horizontal", "height", navHorzHeight.toString() + "px !important");
+                }
+            }
+        },
         _data: null,
         _listViewHorz: null,
         _listViewVert: null,
@@ -3115,11 +3228,11 @@
         _curGroup: 0,
         _animationDistanceX: 160,
         _animationDistanceY: 80,
-        _horzHeight: 48,
-        _vertWidth: 244,
         _playAnimation: false,
         _splitViewClassSet: false,
-        _splitViewDisplayMode: null
+        _splitViewDisplayMode: null,
+        _navVertWidth: 0,
+        _navHorzHeight: 0
     });
 
 })();

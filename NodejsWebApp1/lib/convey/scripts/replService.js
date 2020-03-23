@@ -328,6 +328,8 @@
 
         DbReplicator: WinJS.Class.define(function dbReplicator() {
             Log.call(Log.l.trace, "AppRepl.DbReplicator.", "");
+            this._prcCallSuccess = false;
+            this._prcCallFailed = false;
             this._state = "waiting";
             this._postRequestsToDo = 0;
             this._postRequestsDone = 0;
@@ -497,10 +499,14 @@
             },
             checkForWaiting: function() {
                 if (this.state === "running") {
+                    var bRunImmediately = false;
                     if (this._postRequestsDone === this._postRequestsToDo &&
                         this._fetchRequestsDone === this._fetchRequests.length) {
                         Log.print(Log.l.info, "AppRepl.dbReplicator.checkForWaiting: finished! postRequestsDone=" + this._postRequestsDone +
                             " fetchRequestsDone=" + this._fetchRequestsDone);
+                        if (this._postRequestsDone === 100) {
+                            bRunImmediately = true;
+                        }
                         var bDoSaveStates = false;
                         if (this._replPrevPostMs > AppData.appSettings.odata.replPrevPostMs) {
                             Log.print(Log.l.info, "AppRepl.dbReplicator.checkForWaiting: replPrevPostMs=" + this._replPrevPostMs);
@@ -511,22 +517,24 @@
                         var curFlowSpecId = AppData.appSettings.odata.replPrevFlowSpecId;
                         for (var index = 0; index < this._fetchRequests.length; index++) {
                             var replicationDone = this._fetchRequests[index].replicationDone;
-                            var modifiedDocTsMss = this._fetchRequests[index].modifiedDocTsMss;
+                            var modifiedTsMss = this._fetchRequests[index].modifiedTsMss;
                             var replicationFlowSpecViewIds = this._fetchRequests[index].replicationFlowSpecViewIds;
+                            var bUnFinished = false;
                             for (var i = 0; i < replicationDone.length; i++) {
-                                if (replicationDone[i]) {
-                                    if (replicationFlowSpecViewIds[i] > curFlowSpecId) {
-                                        curFlowSpecId = replicationFlowSpecViewIds[i];
-                                    }
-                                    if (modifiedDocTsMss[i] > curSelectMs) {
-                                        curSelectMs = modifiedDocTsMss[i];
-                                    }
-                                } else {
+                                if (!replicationDone[i]) {
                                     if (replicationFlowSpecViewIds[i] <= curFlowSpecId) {
                                         curFlowSpecId = replicationFlowSpecViewIds[i] - 1;
                                     }
-                                    if (modifiedDocTsMss[i] <= curSelectMs) {
-                                        curSelectMs = modifiedDocTsMss[i] - 1;
+                                    if (modifiedTsMss[i] <= curSelectMs) {
+                                        curSelectMs = modifiedTsMss[i] - 1;
+                                    }
+                                    bUnFinished = true;
+                                } else if (!bUnFinished) {
+                                    if (replicationFlowSpecViewIds[i] > curFlowSpecId) {
+                                        curFlowSpecId = replicationFlowSpecViewIds[i];
+                                    }
+                                    if (modifiedTsMss[i] > curSelectMs) {
+                                        curSelectMs = modifiedTsMss[i];
                                     }
                                 }
                             }
@@ -552,12 +560,17 @@
                             this._fetchRequests = [];
                             this._fetchRequestsDone = 0;
                             WinJS.Promise.timeout(0).then(function () {
-                                AppData.getUserData();
-                                AppData.getUserRemoteData();
-                                AppData.getContactData();
+                                Application.refreshAfterFetch();
                             });
                         }
                         this._state = "waiting";
+                        var that = this;
+                        if (bRunImmediately) {
+                            Log.print(Log.l.info, "AppRepl.dbReplicator.checkForWaiting: more to do, run immediately...");
+                            WinJS.Promise.timeout(100).then(function () {
+                                that.run();
+                            });
+                        }
                     } else {
                         Log.print(Log.l.info, "AppRepl.dbReplicator.checkForWaiting: postRequestsDone=" + this._postRequestsDone +
                             " postRequestsToDo=" + this._postRequestsToDo + 
@@ -580,23 +593,24 @@
                     var row = curRequest.row;
                     Log.print(Log.l.info, "working on postRequests[" + index + "] of RelationName=" + row.RelationName + " RecordID=" + row.RecordID);
                     var replUpload = null;
+                    var rinfRelation = null;
                     var localRelation = AppData.getFormatView(row.RelationName, 0, true);
                     if (localRelation) {
+                        rinfRelation = AppData.getFormatView("RINF" + row.RelationName, 0, true);
                         replUpload = AppRepl.getReplUpload(row.RelationName);
                     }
                     if (index > 0) {
                         for (var i = index - 1; i >= 0; i--) {
                             var prevRequest = that._postRequests[i];
-                            if (prevRequest && prevRequest.state !== "finished" &&
-                                prevRequest.row) {
+                            if (prevRequest && prevRequest.state !== "finished" && prevRequest.row) {
                                 var bSuspend = false;
-                                if (prevRequest.row.ReplicationType !== row.ReplicationType) {
-                                    if (AppData.appSettings.odata.replSyncPostOrder) {
-                                        Log.print(Log.l.info, " blocked by request[" + i + "] of RelationName=" + prevRequest.row.RelationName +
-                                            " RecordID=" + prevRequest.row.RecordID + " in state=" + prevRequest.state);
-                                        bSuspend = true;
-                                    }
-                                } else {
+                                //if (prevRequest.row.ReplicationType !== row.ReplicationType) {
+                                //    if (AppData.appSettings.odata.replSyncPostOrder) {
+                                //        Log.print(Log.l.info, " blocked by request[" + i + "] of RelationName=" + prevRequest.row.RelationName +
+                                //            " RecordID=" + prevRequest.row.RecordID + " in state=" + prevRequest.state);
+                                //        bSuspend = true;
+                                //    }
+                                //} else {
                                     if (localRelation && !localRelation._attribSpecs) {
                                         Log.print(Log.l.info, " blocked by request[" + i + "] of RelationName=" + prevRequest.row.RelationName +
                                             " RecordID=" + prevRequest.row.RecordID + " local attribSpecs not yet loaded");
@@ -607,7 +621,7 @@
                                             " RecordID=" + prevRequest.row.RecordID + " remote attribSpecs not yet loaded");
                                         bSuspend = true;
                                     }
-                                }
+                                //}
                                 if (bSuspend) {
                                     if (index < 20 && that._postRequests.length < 50) {
                                         ret = WinJS.Promise.timeout(200).then(function () {
@@ -616,8 +630,10 @@
                                     } else {
                                         Log.print(Log.l.info, " ignore request[" + index + "] in this schedule");
                                         if (index < that._postRequests.length) {
-                                            that._postRequests[index].state = "finished";
-                                            that._postRequestsDone++;
+                                            if (that._postRequests[index]) {
+                                                that._postRequests[index].state = "finished";
+                                                that._postRequestsDone++;
+                                            }
                                         }
                                         that.checkForWaiting();
                                         ret = WinJS.Promise.as();
@@ -636,6 +652,26 @@
                         }
                         var viewRecord = null;
                         if (localRelation && replUpload) {
+                            var selectRinfRecord = function () {
+                                if (row.AccessStatus === 3) {
+                                    return WinJS.Promise.as();
+                                } else {
+                                    return rinfRelation.selectById(function (json) {
+                                        if (json && json.d) {
+                                            for (var prop2 in json.d) {
+                                                if (json.d.hasOwnProperty(prop2) &&
+                                                    prop2 !== rinfRelation.pkName &&
+                                                    prop2 !== rinfRelation.oDataPkName) {
+                                                    rinfRecord["OIMP" + prop2] = json.d[prop2];
+                                                }
+                                            }
+                                        }
+                                    }, function (err) {
+                                        Log.print(Log.l.error, "selectById RecordID=" + row.RecordID + " returned error " + err);
+                                        return WinJS.Promise.as();
+                                    }, row.RecordID);
+                                }
+                            };
                             var selectViewRecord = function () {
                                 if (row.AccessStatus === 3) {
                                     viewRecord = {};
@@ -647,76 +683,95 @@
                                         }
                                     }, function (err) {
                                         Log.print(Log.l.error, "selectById RecordID=" + row.RecordID + " returned error " + err);
+                                        if (index < that._postRequests.length) {
+                                            if (that._postRequests[index]) {
+                                                that._postRequests[index].state = "finished";
+                                                that._postRequestsDone++;
+                                            }
+                                        }
+                                        that.checkForWaiting();
                                         return WinJS.Promise.as();
                                     }, row.RecordID);
                                 }
                             };
-                            ret = selectViewRecord().then(function () {
-                                if (viewRecord) {
-                                    that._postRequests[index].state = "posting";
-                                    return replUpload.insert(function (json) {
-                                        if (json && json.d) {
-                                            var stmt, values;
-                                            var insertRow = json.d;
-                                            if (insertRow.OIMPStatus === 0) {
-                                                that._postRequests[index].state = "deleting";
-                                                Log.print(Log.l.info, "insert success! RecordId=" + insertRow["OIMP" + row.RelationName + "VIEWID"]);
-                                                stmt = "DELETE FROM \"ReplicationFlowSpec\" WHERE \"ReplicationFlowSpecID\"=?";
-                                                values = [row.ReplicationFlowSpecID];
+                            ret = selectRinfRecord().then(function () {
+                                return selectViewRecord().then(function () {
+                                    if (viewRecord && that._postRequests && that._postRequests[index]) {
+                                        that._postRequests[index].state = "posting";
+                                        return replUpload.insert(function (json) {
+                                            if (json && json.d && that._postRequests && that._postRequests[index]) {
+                                                var stmt, values;
+                                                var insertRow = json.d;
+                                                if (insertRow.OIMPStatus === 0) {
+                                                    that._postRequests[index].state = "deleting";
+                                                    Log.print(Log.l.info, "insert success! RecordId=" + insertRow["OIMP" + row.RelationName + "VIEWID"]);
+                                                    stmt = "DELETE FROM \"ReplicationFlowSpec\" WHERE \"ReplicationFlowSpecID\"=?";
+                                                    values = [row.ReplicationFlowSpecID];
+                                                } else {
+                                                    that._postRequests[index].state = "updating";
+                                                    Log.print(Log.l.info, "insert error! RecordId=" + insertRow["OIMP" + row.RelationName + "VIEWID"] + " Status=" + insertRow.OIMPStatus + " ReplicationStatus=" + insertRow.OIMPReplicationStatus);
+                                                    stmt = "UPDATE \"ReplicationFlowSpec\" SET \"Status\"=ifnull(\"Status\",0)+1,\"ReplicationStatus\"=? WHERE \"ReplicationFlowSpecID\"=?";
+                                                    values = [insertRow.OIMPReplicationStatus, row.ReplicationFlowSpecID];
+                                                }
+                                                Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
+                                                ret = SQLite.xsql(that._db, stmt, values, that._connectionType).then(function (res) {
+                                                    Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
+                                                    if (row.ModifiedTS) {
+                                                        var msString = row.ModifiedTS.replace("\/Date(", "").replace(")\/", "");
+                                                        var milliseconds = parseInt(msString);
+                                                        if (milliseconds > that._replPrevPostMs) {
+                                                            that._replPrevPostMs = milliseconds;
+                                                        }
+                                                    }
+                                                    if (index < that._postRequests.length) {
+                                                        if (that._postRequests[index]) {
+                                                            that._postRequests[index].state = "finished";
+                                                            that._postRequestsDone++;
+                                                        }
+                                                    }
+                                                    that.checkForWaiting();
+                                                }, function (curerr) {
+                                                    Log.print(Log.l.error, "xsql: DELETE returned " + curerr);
+                                                    if (index < that._postRequests.length) {
+                                                        if (that._postRequests[index]) {
+                                                            that._postRequests[index].state = "finished";
+                                                            that._postRequestsDone++;
+                                                        }
+                                                    }
+                                                    that.checkForWaiting();
+                                                });
                                             } else {
-                                                that._postRequests[index].state = "updating";
-                                                Log.print(Log.l.info, "insert error! RecordId=" + insertRow["OIMP" + row.RelationName + "VIEWID"] + " Status=" + insertRow.OIMPStatus + " ReplicationStatus=" + insertRow.OIMPReplicationStatus);
-                                                stmt = "UPDATE \"ReplicationFlowSpec\" SET \"Status\"=ifnull(\"Status\",0)+1,\"ReplicationStatus\"=? WHERE \"ReplicationFlowSpecID\"=?";
-                                                values = [insertRow.OIMPReplicationStatus, row.ReplicationFlowSpecID];
-                                            }
-                                            Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
-                                            ret = SQLite.xsql(that._db, stmt, values, that._connectionType).then(function (res) {
-                                                Log.print(Log.l.info, "xsql: returned rowsAffected=" + res.rowsAffected);
-                                                if (row.ModifiedTS) {
-                                                    var msString = row.ModifiedTS.replace("\/Date(", "").replace(")\/", "");
-                                                    var milliseconds = parseInt(msString);
-                                                    if (milliseconds > that._replPrevPostMs) {
-                                                        that._replPrevPostMs = milliseconds;
+                                                Log.print(Log.l.error, "replUpload.insert returned no data!");
+                                                if (index < that._postRequests.length) {
+                                                    if (that._postRequests[index]) {
+                                                        that._postRequests[index].state = "finished";
+                                                        that._postRequestsDone++;
                                                     }
                                                 }
-                                                if (index < that._postRequests.length) {
-                                                    that._postRequests[index].state = "finished";
-                                                    that._postRequestsDone++;
-                                                }
                                                 that.checkForWaiting();
-                                            }, function (curerr) {
-                                                Log.print(Log.l.error, "xsql: DELETE returned " + curerr);
-                                                if (index < that._postRequests.length) {
-                                                    that._postRequests[index].state = "finished";
-                                                    that._postRequestsDone++;
-                                                }
-                                                that.checkForWaiting();
-                                            });
-                                        } else {
-                                            Log.print(Log.l.error, "replUpload.insert returned no data!");
+                                            }
+                                        }, function (err) {
+                                            Log.print(Log.l.error, "replUpload.insert returned error " + err);
                                             if (index < that._postRequests.length) {
+                                                if (that._postRequests[index]) {
+                                                    that._postRequests[index].state = "finished";
+                                                    that._postRequestsDone++;
+                                                }
+                                            }
+                                            that.checkForWaiting();
+                                        }, rinfRecord, viewRecord);
+                                    } else {
+                                        Log.print(Log.l.error, "no viewRecord for RelationName=" + row.RelationName);
+                                        if (index < that._postRequests.length) {
+                                            if (that._postRequests[index]) {
                                                 that._postRequests[index].state = "finished";
                                                 that._postRequestsDone++;
                                             }
-                                            that.checkForWaiting();
-                                        }
-                                    }, function (err) {
-                                        Log.print(Log.l.error, "replUpload.insert returned error " + err);
-                                        if (index < that._postRequests.length) {
-                                            that._postRequests[index].state = "finished";
-                                            that._postRequestsDone++;
                                         }
                                         that.checkForWaiting();
-                                    }, rinfRecord, viewRecord);
-                                } else {
-                                    Log.print(Log.l.error, "no viewRecord for RelationName=" + row.RelationName);
-                                    if (index < that._postRequests.length) {
-                                        that._postRequests[index].state = "finished";
-                                        that._postRequestsDone++;
+                                        return WinJS.Promise.as();
                                     }
-                                    that.checkForWaiting();
-                                    return WinJS.Promise.as();
-                                }
+                                });
                             });
                         } else {
                             if (!localRelation) {
@@ -726,8 +781,10 @@
                                 Log.print(Log.l.error, "no replUpload relation for RelationName=" + row.RelationName);
                             }
                             if (index < that._postRequests.length) {
-                                that._postRequests[index].state = "finished";
-                                that._postRequestsDone++;
+                                if (that._postRequests[index]) {
+                                    that._postRequests[index].state = "finished";
+                                    that._postRequestsDone++;
+                                }
                             }
                             that.checkForWaiting();
                             ret = WinJS.Promise.as();
@@ -773,7 +830,7 @@
                 }).then(function () {
                     // check for replication flowspec
                     var postReplicationOrder = "\"ReplicationSpec\".\"ReplicationType\"+coalesce(\"ReplicationSpec\".\"TimeArray\",0)";
-                    var stmt = "SELECT \"ReplicationFlowSpec\".*,\"ReplicationSpec\".\"RelationName\"," + postReplicationOrder + " AS \"ReplicationType\" FROM \"ReplicationFlowSpec\",\"ReplicationSpec\" WHERE \"ReplicationFlowSpec\".\"RelationID\"=\"ReplicationSpec\".\"RelationID\" ORDER BY " + postReplicationOrder + ",\"ReplicationFlowSpec\".\"ReplicationFlowSpecID\"";
+                    var stmt = "SELECT \"ReplicationFlowSpec\".*,\"ReplicationSpec\".\"RelationName\"," + postReplicationOrder + " AS \"ReplicationType\" FROM \"ReplicationFlowSpec\",\"ReplicationSpec\" WHERE \"ReplicationFlowSpec\".\"RelationID\"=\"ReplicationSpec\".\"RelationID\" ORDER BY \"ReplicationFlowSpec\".\"ReplicationFlowSpecID\" LIMIT 100";
                     var values = [];
                     Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
                     return SQLite.xsql(that._db, stmt, values, that._connectionType).then(function (res) {
@@ -981,11 +1038,13 @@
                     }
                 } else {
                     Log.print(Log.l.info, relationName + ": returned invalid creatorRecIds=" + recordId);
-                    that._fetchRequests[index].done++;
-                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                        that._fetchRequests[index].state = "finished";
-                        that._fetchRequestsDone++;
-                        that.checkForWaiting();
+                    if (that._fetchRequests[index]) {
+                        that._fetchRequests[index].done++;
+                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                            that._fetchRequests[index].state = "finished";
+                            that._fetchRequestsDone++;
+                            that.checkForWaiting();
+                        }
                     }
                 }
                 Log.ret(Log.l.trace);
@@ -1378,11 +1437,13 @@
                                 if (curAccessStatus !== 1 && curAccessStatus !== 2) {
                                     Log.print(Log.l.error, relationName + ": returned invalid accessStatus=" + curAccessStatus);
                                 }
-                                that._fetchRequests[index].done++;
-                                if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                    that._fetchRequests[index].state = "finished";
-                                    that._fetchRequestsDone++;
-                                    that.checkForWaiting();
+                                if (that._fetchRequests[index]) {
+                                    that._fetchRequests[index].done++;
+                                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                        that._fetchRequests[index].state = "finished";
+                                        that._fetchRequestsDone++;
+                                        that.checkForWaiting();
+                                    }
                                 }
                         }
                     }
@@ -1391,7 +1452,7 @@
                     var restriction = {};
                     restriction[pkName] = recordIdRestriction;
                     var relation = AppData.getFormatView(relationName, 0, false);
-                    if (relation) {
+                    if (relation && that._fetchRequests && that._fetchRequests[index]) {
                         that._fetchRequests[index].state = "selecting";
                         relation.select(function (json) {
                             var localRecIdsDone = [];
@@ -1433,21 +1494,25 @@
                                                     if (curAccessStatus !== 3) {
                                                         Log.print(Log.l.error, relationName + ": returned invalid accessStatus=" + curAccessStatus);
                                                     }
-                                                    that._fetchRequests[index].done++;
-                                                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                                        that._fetchRequests[index].state = "finished";
-                                                        that._fetchRequestsDone++;
-                                                        that.checkForWaiting();
+                                                    if (that._fetchRequests[index]) {
+                                                        that._fetchRequests[index].done++;
+                                                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                                            that._fetchRequests[index].state = "finished";
+                                                            that._fetchRequestsDone++;
+                                                            that.checkForWaiting();
+                                                        }
                                                     }
                                             }
                                             localRecIdsDone[j] = true;
                                         } else {
                                             Log.print(Log.l.info, relationName + ": returned invalid remoteRecordId=" + remoteRecordId);
-                                            that._fetchRequests[index].done++;
-                                            if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                                that._fetchRequests[index].state = "finished";
-                                                that._fetchRequestsDone++;
-                                                that.checkForWaiting();
+                                            if (that._fetchRequests[index]) {
+                                                that._fetchRequests[index].done++;
+                                                if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                                    that._fetchRequests[index].state = "finished";
+                                                    that._fetchRequestsDone++;
+                                                    that.checkForWaiting();
+                                                }
                                             }
                                         }
                                     }
@@ -1470,11 +1535,13 @@
                                                         if (curAccessStatus !== 1 && curAccessStatus !== 2) {
                                                             Log.print(Log.l.error, relationName + ": returned invalid accessStatus=" + curAccessStatus);
                                                         }
-                                                        that._fetchRequests[index].done++;
-                                                        if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                                            that._fetchRequests[index].state = "finished";
-                                                            that._fetchRequestsDone++;
-                                                            that.checkForWaiting();
+                                                        if (that._fetchRequests[index]) {
+                                                            that._fetchRequests[index].done++;
+                                                            if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                                                that._fetchRequests[index].state = "finished";
+                                                                that._fetchRequestsDone++;
+                                                                that.checkForWaiting();
+                                                            }
                                                         }
                                                 }
                                             }
@@ -1500,11 +1567,13 @@
                                                 if (curAccessStatus !== 1 && curAccessStatus !== 2) {
                                                     Log.print(Log.l.error, relationName + ": returned invalid accessStatus=" + curAccessStatus);
                                                 }
-                                                that._fetchRequests[index].done++;
-                                                if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
-                                                    that._fetchRequests[index].state = "finished";
-                                                    that._fetchRequestsDone++;
-                                                    that.checkForWaiting();
+                                                if (that._fetchRequests[index]) {
+                                                    that._fetchRequests[index].done++;
+                                                    if (that._fetchRequests[index].done === that._fetchRequests[index].todo) {
+                                                        that._fetchRequests[index].state = "finished";
+                                                        that._fetchRequestsDone++;
+                                                        that.checkForWaiting();
+                                                    }
                                                 }
                                         }
                                     }
@@ -1613,8 +1682,10 @@
                                     }
                                     if (ignoredCount === creatorRecIds.length) {
                                         Log.print(Log.l.info, "select local RINFs: all results ignored!");
-                                        that._fetchRequests[index].state = "finished";
-                                        that._fetchRequestsDone++;
+                                        if (that._fetchRequests[index]) {
+                                            that._fetchRequests[index].state = "finished";
+                                            that._fetchRequestsDone++;
+                                        }
                                         that.checkForWaiting();
                                     } else {
                                         Log.print(Log.l.info, "select local RINFs: calling selectRemoteReplicationData");
@@ -1634,8 +1705,10 @@
                         if (!rinfRelation.attribSpecs) {
                             rinfRelation.getAttribSpecs(rinfRelation, fnSelect, null, function(errorResponse) {
                                 Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
-                                that._fetchRequests[index].state = "finished";
-                                that._fetchRequestsDone++;
+                                if (that._fetchRequests[index]) {
+                                    that._fetchRequests[index].state = "finished";
+                                    that._fetchRequestsDone++;
+                                }
                                 that.checkForWaiting();
                             });
                         } else {
@@ -1862,7 +1935,8 @@
                         Log.print(Log.l.info, "working on fetchRequests[" + that._fetchRequestsCurrent + "].relationName=" + that._fetchRequests[that._fetchRequestsCurrent].relationName);
                         if (that._fetchRequestsCurrent > 0) {
                             for (var i = that._fetchRequestsCurrent - 1; i >= 0; i--) {
-                                if (that._fetchRequests[i].replicationType < curFetchRequest.replicationType &&
+                                if (that._fetchRequests[i] &&
+                                    that._fetchRequests[i].replicationType < curFetchRequest.replicationType &&
                                     that._fetchRequests[i].state !== "finished") {
                                     Log.print(Log.l.info, curFetchRequest.relationName + " blocked by request[" + i + "] relationName=" + that._fetchRequests[i].relationName +
                                         " in state=" + that._fetchRequests[i].state + " - so try later again!");
@@ -1902,16 +1976,35 @@
                 this._replPrevSelectMs = AppData.appSettings.odata.replPrevSelectMs;
                 this._replPrevPostMs = AppData.appSettings.odata.replPrevPostMs;
                 this._replPrevFlowSpecId = AppData.appSettings.odata.replPrevFlowSpecId;
+                var timeZoneRemoteAdjustment, replMaxFetchedModifiedSeconds;
                 var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
-                url += "/ReplicationFlowSpecExtView?$filter=((CreatorSiteID%20eq%20" + AppData._persistentStates.odata.dbSiteId + "%20or%20CreatorSiteID%20eq%20" + AppData._persistentStates.odata.serverSiteId + ")";
-                if (AppData.appSettings.odata.replPrevFlowSpecId) {
-                    url += "%20and%20ReplicationFlowSpecVIEWID%20gt%20" + AppData.appSettings.odata.replPrevFlowSpecId;
-                } else if (AppData.appSettings.odata.replPrevSelectMs) {
-                    var timeZoneRemoteAdjustment = AppData.appSettings.odata.timeZoneRemoteAdjustment || 0;
-                    var replMaxFetchedModifiedSeconds = Math.floor((AppData.appSettings.odata.replPrevSelectMs + timeZoneRemoteAdjustment * 60000) / 1000);
-                    url += "%20and%20ModifiedSeconds%20ge%20" + replMaxFetchedModifiedSeconds;
+                if (this._prcCallFailed) {
+                    var serverSiteId = AppData._persistentStates.odata.serverSiteId;
+                    if (!serverSiteId || serverSiteId === "undefined") {
+                        serverSiteId = 1;
+                    }
+                    url += "/ReplicationFlowSpecExtView?$filter=((CreatorSiteID%20eq%20" + AppData._persistentStates.odata.dbSiteId + "%20or%20CreatorSiteID%20eq%20" + serverSiteId + ")";
+                    if (AppData.appSettings.odata.replPrevFlowSpecId) {
+                        url += "%20and%20ReplicationFlowSpecVIEWID%20gt%20" + AppData.appSettings.odata.replPrevFlowSpecId;
+                    } else if (AppData.appSettings.odata.replPrevSelectMs) {
+                        timeZoneRemoteAdjustment = AppData.appSettings.odata.timeZoneRemoteAdjustment || 0;
+                        replMaxFetchedModifiedSeconds = Math.floor((AppData.appSettings.odata.replPrevSelectMs + timeZoneRemoteAdjustment * 60000) / 1000);
+                        url += "%20and%20ModifiedSeconds%20ge%20" + replMaxFetchedModifiedSeconds;
+                    }
+                    url += ")&$orderby=ReplicationType,RelationID,CreatorSiteID,CreatorRecID,ModifiedTS&$format=json";
+                } else {
+                    url += "/PRC_GetReplicationFlowSpecExt?pCreatorSiteID=" + AppData._persistentStates.odata.dbSiteId;
+                    if (AppData.appSettings.odata.replPrevFlowSpecId) {
+                        url += "&pReplicationFlowSpecVIEWID=" + AppData.appSettings.odata.replPrevFlowSpecId + "&$format=json";
+                    } else if (AppData.appSettings.odata.replPrevSelectMs) {
+                        timeZoneRemoteAdjustment = AppData.appSettings.odata.timeZoneRemoteAdjustment || 0;
+                        replMaxFetchedModifiedSeconds = Math.floor((AppData.appSettings.odata.replPrevSelectMs + timeZoneRemoteAdjustment * 60000) / 1000);
+                        url += "&pReplicationFlowSpecVIEWID=0&pModifiedSeconds=" + replMaxFetchedModifiedSeconds+ "&$format=json";
+                    }
+                    if (AppData.appSettings.odata.callerAddress) {
+                        url += "&pCallerAddress='" + AppData.appSettings.odata.callerAddress + "'";
+                    }
                 }
-                url += ")&$orderby=ReplicationType,RelationID,CreatorSiteID,CreatorRecID,ModifiedTS&$format=json";
                 var user = AppData.getOnlineLogin();
                 var password = AppData.getOnlinePassword();
                 var options = {
@@ -1931,6 +2024,9 @@
                 Log.print(Log.l.info, "calling xhr method=GET url=" + url);
                 var ret = WinJS.xhr(options).then(function (responseAttribSpec) {
                     Log.print(Log.l.info, "ReplicationFlowSpecExtView: success!");
+                    if (!that._prcCallFailed) {
+                        that._prcCallSuccess = true;
+                    }
                     try {
                         var obj = jsonParse(responseAttribSpec.responseText);
                         if (obj && obj.d) {
@@ -1957,6 +2053,11 @@
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
                     Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                    if (that.networkstate !== "Unknown" && that.networkstate !== "Offline") {
+                        if (!that._prcCallFailed && !that._prcCallSuccess) {
+                            that._prcCallFailed = true;
+                        }
+                    }
                     that._fetchRequestsDone = 0;
                     that.checkForWaiting();
                     return WinJS.Promise.as();
@@ -1983,16 +2084,19 @@
                     Log.print(Log.l.info, "Error occured!");
                     this._stop = false;
                     this._promise = null;
+                    this._prcCallFailed = false;
                 } else if (this._stop) {
                     Log.print(Log.l.info, "stop=" + this._stop + " - so stop!");
                     this._state = "stopped";
                     this._stop = false;
                     this._promise = null;
+                    this._prcCallFailed = false;
                 } else if (!AppData._persistentStates.odata.replActive) {
                     Log.print(Log.l.info, "replActive=" + AppData._persistentStates.odata.replActive + " - so stop!");
                     this._state = "stopped";
                     this._stop = false;
                     this._promise = null;
+                    this._prcCallFailed = false;
                 } else if (this.state === "running" && !numFastReqs) {
                     Log.print(Log.l.info, "still running - try later!");
                 } else {
@@ -2027,6 +2131,7 @@
                             case "Offline":
                                 Log.print(Log.l.info, "no network connextion - try later!");
                                 ret = WinJS.Promise.as();
+                                that._prcCallFailed = false;
                                 break;
                             default:
                                 Log.print(Log.l.info, "active network connection - go on!");

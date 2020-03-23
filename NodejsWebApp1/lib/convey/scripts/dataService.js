@@ -167,6 +167,82 @@
         getDocFormatFromExt: function(fileExt) {
             return AppData._docFormat[fileExt];
         },
+        _sqlFilterReplacement: {
+            "!": "NOT",
+            ">=": ">=",
+            "<=": "<=",
+            ">": ">",
+            "<": ">"
+        },
+        replaceSqlFilter: function (restriction, isString) {
+            var sqlRestriction = null;
+            Log.call(Log.l.u1, "AppData.", "restriction=" + restriction);
+            if (typeof restriction === "string") {
+                for (var op in AppData._sqlFilterReplacement) {
+                    if (AppData._sqlFilterReplacement.hasOwnProperty(op)) {
+                        if (restriction.indexOf(op) === 0) {
+                            sqlRestriction = " " + AppData._sqlFilterReplacement[op] +
+                                (isString ? " '" : " ") + 
+                                restriction.substr(op.length) +
+                                (isString ? "' " : " ");
+                            break;
+                        }
+                    }
+                }
+                if (!sqlRestriction) {
+                    sqlRestriction = " =" +
+                        (isString ? " '" : " ") +
+                        restriction +
+                        (isString ? "' " : " ");
+                }
+            } else {
+                sqlRestriction = " =" +
+                    (isString ? " '" : " ") +
+                    restriction +
+                    (isString ? "' " : " ");
+            }
+            Log.ret(Log.l.u1, "sqlQuery=" + sqlRestriction);
+            return sqlRestriction;
+        },
+        _odataFilterReplacement: {
+            "!": "ne",
+            ">=": "ge",
+            "<=": "le",
+            ">": "gt",
+            "<": "lt"
+        },
+        replaceOdataFilter: function (restriction, isString) {
+            var odataRestriction = null;
+            Log.call(Log.l.u1, "AppData.", "restriction=" + restriction);
+            if (typeof restriction === "string") {
+                for (var op in AppData._odataFilterReplacement) {
+                    if (AppData._odataFilterReplacement.hasOwnProperty(op)) {
+                        if (restriction.indexOf(op) === 0) {
+                            odataRestriction = "%20" +
+                                (isString ? "'" : "") +
+                                AppData._odataFilterReplacement[op] +
+                                (isString ? "'" : "") +
+                                "%20" +
+                                restriction.substr(op.length);
+                            break;
+                        }
+                    }
+                }
+                if (!odataRestriction) {
+                    odataRestriction = "%20eq%20" +
+                        (isString ? "'" : "") +
+                        restriction +
+                        (isString ? "'" : "");
+                }
+            } else {
+                odataRestriction = "%20eq%20" +
+                    (isString ? "'" : "") +
+                    restriction +
+                    (isString ? "'" : "");
+            }
+            Log.ret(Log.l.u1, "odataFilter=" + odataRestriction);
+            return odataRestriction;
+        },
         /**
          * @class formatViewData 
          * @memberof AppData
@@ -230,6 +306,8 @@
             _isRinf: false,
             _relationName: null,
             _formatId: 0,
+            _useDialogId: 0,
+            _viewRelationName: null,
             _attribSpecs: null,
             _isRegister: false,
             /**
@@ -334,6 +412,16 @@
                 }
             },
             /**
+             * @property {string} viewRelationName - Database view name
+             * @memberof AppData.formatViewData
+             * @description Read-only. Retrieves the name of the database view connected to the current AppData.formatViewData object
+             */
+            viewRelationName: {
+                get: function() {
+                    return this._viewRelationName;
+                }
+            },
+            /**
              * @property {number} formatId - Format view id 
              * @memberof AppData.formatViewData
              * @description Read-only. Retrieves the number of the format view connected to the current AppData.formatViewData object.
@@ -397,7 +485,7 @@
                     Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
-                    Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                     error(errorResponse);
                 });
                 Log.ret(Log.l.trace);
@@ -420,17 +508,26 @@
                 return retNext;
             },
             getAttribSpecs: function(that, followFunction, complete, error, param1, param2) {
-                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + that.relationName + " formatId=" + that.formatId);
+                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + that.relationName + " formatId=" + that.formatId + " isRegister=" + that._isRegister);
                 var ret;
                 var loadAttribSpecs = function() {
                     var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.getOnlinePath(that._isRegister);
-                    url += "/AttribSpecExtView?$filter=(RelationName%20eq%20'" + that.relationName;
+                    url += "/AttribSpecExtView?$filter=(";
                     if (that.formatId) {
-                        url += "VIEW_" + that.formatId.toString();
+                        if (that.viewRelationName) {
+                            url += "RelationName%20eq%20'" + that.viewRelationName + "'";
+                        } else if (that._useDialogId) {
+                            url += "BaseRelationName%20eq%20'" + that.relationName + "'%20and%20DialogID%20eq%20" + that.formatId.toString();
+                        } else {
+                            url += "RelationName%20eq%20'" + that.relationName + "VIEW_" + that.formatId.toString() + "'";
+                        }
+                    } else {
+                        url += "RelationName%20eq%20'" + that.relationName + "'";
                     }
-                    url += "')&$format=json&$orderby=AttributeIDX";
+                    url += ")&$format=json&$orderby=AttributeIDX";
                     var user = AppData.getOnlineLogin(that._isRegister);
                     var password = AppData.getOnlinePassword(that._isRegister);
+                    Log.print(Log.l.trace, "user=" + user );
                     var options = {
                         type: "GET",
                         url: url,
@@ -445,13 +542,31 @@
                             "Authorization" : "Basic " + btoa(user + ":" + password)
                         }
                     };
+                    Log.print(Log.l.trace, "user=" + user + " password=" + password + " Authorization=" + options.headers["Authorization"] );
                     Log.print(Log.l.info, "calling xhr method=GET url=" + url);
                     return WinJS.xhr(options).then(function xhrSuccess(responseAttribSpec) {
                         Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
                         try {
                             var json = jsonParse(responseAttribSpec.responseText);
-                            Log.ret(Log.l.trace);
-                            return that.fetchAllAttribSpecs(that, json, followFunction, complete, error, param1, param2);
+                            if (json && json.d && json.d.results && json.d.results.length > 0) {
+                                if (that.formatId) {
+                                    that._viewRelationName = json.d.results[0].RelationName;
+                                    Log.ret(Log.l.trace, "retrieved viewRelationName=" + that._viewRelationName);
+                                }
+                                return that.fetchAllAttribSpecs(that, json, followFunction, complete, error, param1, param2);
+                            } else if (!that._useDialogId) {
+                                that._useDialogId = true;
+                                Log.ret(Log.l.trace, "try again with DialogID...");
+                                return that.getAttribSpecs(that, followFunction, complete, error, param1, param2);
+                            } else {
+                                that._useDialogId = false;
+                                Log.ret(Log.l.trace, "no data found!");
+                                if (json && json.d) {
+                                    that._attribSpecs = json && json.d.results;
+                                }
+                                followFunction(that, complete, error, param1, param2);
+                                return WinJS.Promise.as();
+                            }
                         } catch (exception) {
                             Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
                             error({ status: 500, statusText: "AttribSpecExtView parse error " + (exception && exception.message) });
@@ -459,7 +574,7 @@
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
-                        Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                        Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                         error(errorResponse);
                     });
                 }
@@ -508,17 +623,18 @@
                             for (var i = 0; i < that.attribSpecs.length; i++) {
                                 if (that.attribSpecs[i].BaseAttributeName) {
                                     var viewAttributeName = that.attribSpecs[i].ODataAttributeName;
-                                    if (typeof viewRecord[viewAttributeName] !== "undefined") {
-                                        if (typeof viewRecord[viewAttributeName] === "string" && viewRecord[viewAttributeName].length === 0) {
-                                            viewRecord[viewAttributeName] = null;
+                                    var viewAttributeValue = stripControlCodes(viewRecord[viewAttributeName]);
+                                    if (typeof viewAttributeValue !== "undefined") {
+                                        if (typeof viewAttributeValue === "string" && viewAttributeValue.length === 0) {
+                                            viewAttributeValue = null;
                                         }
                                         if (that._isLocal) {
                                             var baseAttributeName = that.attribSpecs[i].BaseAttributeName;
                                             Log.print(Log.l.trace, baseAttributeName + ": " + viewRecord[viewAttributeName]);
-                                            tableRecord[baseAttributeName] = viewRecord[viewAttributeName];
+                                            tableRecord[baseAttributeName] = viewAttributeValue;
                                         } else {
                                             Log.print(Log.l.trace, viewAttributeName + ": " + viewRecord[viewAttributeName]);
-                                            tableRecord[viewAttributeName] = viewRecord[viewAttributeName];
+                                            tableRecord[viewAttributeName] = viewAttributeValue;
                                         }
                                     }
                                 }
@@ -544,7 +660,7 @@
                         if (that.attribSpecs && that.attribSpecs.length > 0) {
                             var filterString = "";
                             if (restriction) {
-                                var viewAttributeName, i, curRestriction, j, hasRestriction, r, curFilterString;
+                                var viewAttributeName, i, curRestriction, j, hasRestriction, r, curFilterString, isString;
                                 var length = 1;
                                 if (that._isLocal) {
                                     for (r = 0; r < length; r++) {
@@ -560,7 +676,8 @@
                                                     if (curFilterString.length > 0) {
                                                         curFilterString += " AND ";
                                                     }
-                                                    if (that.attribSpecs[i].AttribTypeID === 3) {
+                                                    isString = that.attribSpecs[i].ExtType === 3;
+                                                    if (isString && !restriction.bExact) {
                                                         // string attribute: generate <attribute> LIKE '<restriction>%' query
                                                         if (typeof curRestriction === "object") {
                                                             if (restriction.bAndInEachRow) {
@@ -568,22 +685,29 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString += that.attribSpecs[i].Name + "LIKE '" + curRestriction[r] + "%'";
+                                                                    if (curRestriction[r] === null) {
+                                                                        // ignore null restrictions
+                                                                    } else {
+                                                                        curFilterString += that.attribSpecs[i].Name + " LIKE '" + curRestriction[r] + "%'";
+                                                                    }
                                                                 }
-                                                            } else {
+                                                            } else if (curRestriction.length > 0) {
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
                                                                         hasRestriction = true;
-                                                                        if (j > 0) {
+                                                                        if (j === 0) {
+                                                                            curFilterString += "(";
+                                                                        } else if (j > 0) {
                                                                             curFilterString += " OR ";
                                                                         }
-                                                                        curFilterString += that.attribSpecs[i].Name + "LIKE '" + curRestriction[j] + "%'";
+                                                                        curFilterString += that.attribSpecs[i].Name + " LIKE '" + curRestriction[j] + "%'";
                                                                     }
                                                                 }
+                                                                curFilterString += ")";
                                                             }
                                                         } else {
-                                                            curFilterString += that.attribSpecs[i].Name + "LIKE '" + curRestriction + "%'";
+                                                            curFilterString += that.attribSpecs[i].Name + " LIKE '" + curRestriction + "%'";
                                                         }
                                                         // for timestamp as atttribute type
                                                     } else {
@@ -593,7 +717,11 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString += that.attribSpecs[i].Name + " = " + curRestriction[r];
+                                                                    if (curRestriction[r] === null) {
+                                                                        // ignore null restrictions
+                                                                    } else {
+                                                                        curFilterString += that.attribSpecs[i].Name + AppData.replaceSqlFilter(curRestriction[r], isString);
+                                                                    }
                                                                 }
                                                             } else {
                                                                 hasRestriction = false;
@@ -613,14 +741,15 @@
                                                                 curFilterString += ")";
                                                             }
                                                         } else {
-                                                            if ((that.attribSpecs[i].Function & 16384) && (restriction[viewAttributeName] === 0 || restriction[viewAttributeName] === "0")) {
+                                                            if ((that.attribSpecs[i].Function & 16384) &&
+                                                                ((restriction[viewAttributeName] === 0 || restriction[viewAttributeName] === "0") && !restriction.bExact || curRestriction === null)) {
                                                                 // ignore Entry 0 on INIT columns
                                                             } else {
                                                                 if (curRestriction === "NULL") {
                                                                     curFilterString += that.attribSpecs[i].Name + " IS NULL";
                                                                 } else {
                                                                     // other attribute: generate <attribute> = <restriction> query
-                                                                    curFilterString += that.attribSpecs[i].Name + " = " + curRestriction;
+                                                                    curFilterString += that.attribSpecs[i].Name + AppData.replaceSqlFilter(curRestriction, isString);
                                                                 }
                                                             }
                                                         }
@@ -628,10 +757,12 @@
                                                 }
                                             }
                                         }
-                                        if (restriction.bAndInEachRow && filterString.length > 0) {
-                                            filterString += " OR ";
+                                        if (curFilterString.length > 0) {
+                                            if (restriction.bAndInEachRow && filterString.length > 0) {
+                                                filterString += " OR ";
+                                            }
+                                            filterString += curFilterString;
                                         }
-                                        filterString += curFilterString;
                                     }
                                 } else {
                                     var addRestriction = function (prevFilterString, newRestriction) {
@@ -657,7 +788,8 @@
                                                     !(curRestriction === null) &&
                                                     !(typeof curRestriction === "string" && curRestriction.length === 0)) {
                                                     Log.print(Log.l.trace, viewAttributeName + "=" + curRestriction);
-                                                    if (that.attribSpecs[i].AttribTypeID === 3) {
+                                                    isString = that.attribSpecs[i].AttribTypeID === 3;
+                                                    if (isString && !restriction.bExact) {
                                                         // string attribute: generate <attribute> LIKE '<restriction>%' query
                                                         if (typeof curRestriction === "object") {
                                                             if (restriction.bAndInEachRow) {
@@ -665,33 +797,50 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + curRestriction[r] + "')");
+                                                                    if (curRestriction[r] === null) {
+                                                                        // ignore null restrictions
+                                                                    } else {
+                                                                        curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + encodeURL(curRestriction[r]) + "')");
+                                                                    }
                                                                 }
                                                             } else {
                                                                 curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
-                                                                        if (hasRestriction) {
+                                                                        if (!hasRestriction) {
+                                                                            curFilterString += "(";
+                                                                        } else {
                                                                             curFilterString += "%20or%20";
                                                                         }
                                                                         if (curRestriction[j] === "NULL") {
                                                                             curFilterString += viewAttributeName + "%20eq%20null";
+                                                                        } else if (curRestriction[j] === "NOT NULL") {
+                                                                            curFilterString += viewAttributeName + "%20ne%20null";
                                                                         } else {
-                                                                            curFilterString += "startswith(" + viewAttributeName + ",'" + curRestriction[j] + "')";
+                                                                            curFilterString += "startswith(" + viewAttributeName + ",'" + encodeURL(curRestriction[j]) + "')";
                                                                         }
                                                                         hasRestriction = true;
                                                                     }
                                                                 }
                                                                 if (!hasRestriction) {
                                                                     curFilterString += viewAttributeName + "%20eq%20null";
+                                                                } else {
+                                                                    curFilterString += ")";
                                                                 }
                                                             }
                                                         } else {
-                                                            curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + curRestriction + "')");
+                                                            if (curRestriction === "NULL") {
+                                                                curFilterString += viewAttributeName + "%20eq%20null";
+                                                            } else if (curRestriction === "NOT NULL") {
+                                                                curFilterString += viewAttributeName + "%20ne%20null";
+                                                            } else {
+                                                            curFilterString = addRestriction(curFilterString, "startswith(" + viewAttributeName + ",'" + encodeURL(curRestriction) + "')");
+                                                        }
                                                         }
                                                         // for timestamp as atttribute type
-                                                    } else if (that.attribSpecs[i].AttribTypeID === 8) {
+                                                    } else if (that.attribSpecs[i].AttribTypeID === 8 ||
+                                                        that.attribSpecs[i].AttribTypeID === 6) {
                                                         var date, day, month, year;
                                                         // date attribute: generate year(<attribute>) = year(restriction) and month(<attribute>) = month(restriction) and ... query
                                                         if (typeof curRestriction === "object" && Array.isArray(curRestriction)) {
@@ -700,21 +849,27 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    date = new Date(curRestriction[r]);
-                                                                    day = date.getDate();
-                                                                    month = date.getMonth() + 1;
-                                                                    year = date.getFullYear();
-                                                                    curFilterString = addRestriction(curFilterString, 
-                                                                        year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
-                                                                        month.toString() + "%20eq%20month(" + viewAttributeName + ")%20and%20" +
-                                                                        day.toString() + "%20eq%20day(" + viewAttributeName + ")");
+                                                                    if (curRestriction[r] === null) {
+                                                                        // ignore null restriction
+                                                                    } else {
+                                                                        date = new Date(curRestriction[r]);
+                                                                        day = date.getDate();
+                                                                        month = date.getMonth() + 1;
+                                                                        year = date.getFullYear();
+                                                                        curFilterString = addRestriction(curFilterString,
+                                                                            year.toString() + "%20eq%20year(" + viewAttributeName + ")%20and%20" +
+                                                                            month.toString() + "%20eq%20month(" + viewAttributeName + ")%20and%20" +
+                                                                            day.toString() + "%20eq%20day(" + viewAttributeName + ")");
+                                                                    }
                                                                 }
                                                             } else {
                                                                 curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
-                                                                        if (hasRestriction) {
+                                                                        if (!hasRestriction) {
+                                                                            curFilterString += "(";
+                                                                        } else {
                                                                             curFilterString += "%20or%20";
                                                                         }
                                                                         date = new Date(curRestriction[j]);
@@ -729,6 +884,8 @@
                                                                 }
                                                                 if (!hasRestriction) {
                                                                     curFilterString += viewAttributeName + "%20eq%20null";
+                                                                } else {
+                                                                    curFilterString += ")";
                                                                 }
                                                             }
                                                         } else {
@@ -754,30 +911,41 @@
                                                                     if (length < curRestriction.length) {
                                                                         length = curRestriction.length;
                                                                     }
-                                                                    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20eq%20" + curRestriction[r]);
+                                                                    if (curRestriction[r] === null) {
+                                                                        // ignore null restriction
+                                                                    } else {
+                                                                        curFilterString = addRestriction(curFilterString, viewAttributeName + AppData.replaceOdataFilter(curRestriction[r], isString));
+                                                                    }
                                                                 }
                                                             } else {
                                                                 curFilterString = addRestriction(curFilterString, "");
                                                                 hasRestriction = false;
                                                                 for (j = 0; j < curRestriction.length; j++) {
                                                                     if (curRestriction[j]) {
-                                                                        if (hasRestriction) {
+                                                                        if (!hasRestriction) {
+                                                                            curFilterString += "(";
+                                                                        } else {
                                                                             curFilterString += "%20or%20";
                                                                         }
                                                                         if (curRestriction[j] === "NULL") {
                                                                             curFilterString += viewAttributeName + "%20eq%20null";
+                                                                        } else if (curRestriction[j] === "NOT NULL") {
+                                                                            curFilterString += viewAttributeName + "%20ne%20null";
                                                                         } else {
-                                                                            curFilterString += viewAttributeName + "%20eq%20" + curRestriction[j];
+                                                                            curFilterString += viewAttributeName + AppData.replaceOdataFilter(curRestriction[j], isString);
                                                                         }
                                                                         hasRestriction = true;
                                                                     }
                                                                 }
                                                                 if (!hasRestriction) {
                                                                     curFilterString += viewAttributeName + "%20eq%20null";
+                                                                } else {
+                                                                    curFilterString += ")";
                                                                 }
                                                             }
                                                         } else {
-                                                            if ((that.attribSpecs[i].Function & 16384) && (curRestriction === 0 || curRestriction === "0")) {
+                                                            if ((that.attribSpecs[i].Function & 16384) &&
+                                                                ((curRestriction === 0 || curRestriction === "0") && !restriction.bExact || curRestriction === null)) {
                                                                 // ignore Entry 0 on INIT columns
                                                             } else {
                                                                 // other attribute: generate <attribute> = <restriction> query
@@ -786,7 +954,7 @@
 																} else if (curRestriction === "NOT NULL") {
 																    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20ne%20null");
                                                                 } else {
-																    curFilterString = addRestriction(curFilterString, viewAttributeName + "%20eq%20" + curRestriction);
+																    curFilterString = addRestriction(curFilterString, viewAttributeName + AppData.replaceOdataFilter(curRestriction, isString));
                                                                 }
                                                             }
                                                         }
@@ -794,10 +962,12 @@
                                                 }
                                             }
                                         }
-                                        if (restriction.bAndInEachRow && filterString.length > 0) {
-                                            filterString += "%20or%20";
+                                        if (curFilterString.length > 0) {
+                                            if (restriction.bAndInEachRow && filterString.length > 0) {
+                                                filterString += "%20or%20";
+                                            }
+                                            filterString += curFilterString;
                                         }
-                                        filterString += curFilterString;
                                     }
                                 }
                             }
@@ -843,37 +1013,47 @@
              *  In remote database server connections via OData producer the result set is usually divided in pieces of about 100 rows per request.
              *  Use the function {@link AppData.getNextUrl} to retrieve an URL to scroll to the next part of the result set.
              */
-            select: function (complete, error, restrictions, viewOptions) {
-                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + this.relationName + " formatId=" + this.formatId);
+            select: function (complete, error, restrictions, viewOptions, nextStmt, prevResults) {
+                Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + this.relationName + " formatId=" + this.formatId + " nextStmt=" + nextStmt);
                 var that = this;
                 var fncSelect;
                 var filterString = null;
                 that._pages = [];
                 if (that._isLocal) {
                     fncSelect = function () {
-                        var relationName = that.relationName;
+                        var relationName;
                         if (that.formatId) {
-                            Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW_" + that.formatId.toString());
-                            relationName += "VIEW_" + that.formatId.toString();
+                            relationName = that.relationName + "VIEW_" + that.formatId.toString();
+                        } else {
+                            relationName = that.relationName;
                         }
-                        var stmt = "SELECT * FROM \"" + relationName + "\"";
-                        if (filterString && filterString.length > 0) {
-                            stmt += " WHERE " + filterString;
-                        }
-                        if (viewOptions) {
-                            // select all lines with order by
-                            if (viewOptions.ordered) {
-                                var orderBy = " ORDER BY \"";
-                                if (viewOptions.orderAttribute) {
-                                    orderBy += viewOptions.orderAttribute;
-                                } else {
-                                    orderBy += that.pkName;
+                        Log.print(Log.l.trace, "calling select: relationName=" + relationName);
+                        var stmt;
+                        if (nextStmt) {
+                            stmt = nextStmt;
+                        } else {
+                            stmt = "SELECT * FROM \"" + relationName + "\"";
+                            if (filterString && filterString.length > 0) {
+                                stmt += " WHERE " + filterString;
+                            }
+                            if (viewOptions) {
+                                // select all lines with order by
+                                if (viewOptions.ordered) {
+                                    var orderBy = " ORDER BY \"";
+                                    if (viewOptions.orderAttribute) {
+                                        orderBy += viewOptions.orderAttribute;
+                                    } else {
+                                        orderBy += that.pkName;
+                                    }
+                                    orderBy += "\"";
+                                    if (viewOptions.desc) {
+                                        orderBy += " DESC";
+                                    }
+                                    stmt += orderBy;
                                 }
-                                orderBy += "\"";
-                                if (viewOptions.desc) {
-                                    orderBy += " DESC";
-                                }
-                                stmt += orderBy;
+                            }
+                            if (that._maxPageSize > 0) {
+                                stmt += " LIMIT " + that._maxPageSize;
                             }
                         }
                         var values = [];
@@ -898,25 +1078,41 @@
                                     results: results
                                 }
                             }
-                            if (that._maxPageSize && json.d && json.d.results && json.d.results.length > that._maxPageSize) {
-                                for (i = 0, j = 0; i < json.d.results.length; i += that._maxPageSize) {
-                                    var page;
-                                    if (i + that._maxPageSize < json.d.results.length) {
-                                        page = {
-                                            results: json.d.results.slice(i, i + that._maxPageSize),
-                                            __next: "page://" + (j + 1).toString()
+                            if (that._maxPageSize > 0 && json.d && json.d.results) {
+                                if (json.d.results.length > that._maxPageSize) {
+                                    for (i = 0, j = 0; i < json.d.results.length; i += that._maxPageSize) {
+                                        var page;
+                                        if (i + that._maxPageSize < json.d.results.length) {
+                                            page = {
+                                                results: json.d.results.slice(i, i + that._maxPageSize),
+                                                __next: "page://" + (j + 1).toString()
+                                            }
+                                        } else {
+                                            page = {
+                                                results: json.d.results.slice(i, json.d.results.length)
+                                            }
+                                            if (json.d.__next) {
+                                                page.__next = json.d.__next;
+                                            }
                                         }
-                                    } else {
-                                        page = {
-                                            results: json.d.results.slice(i, json.d.results.length)
-                                        }
-                                        if (json.d.__next) {
-                                            page.__next = json.d.__next;
-                                        }
+                                        that._pages[j++] = page;
                                     }
-                                    that._pages[j++] = page;
+                                    json.d = that._pages[0];
+                                } else if (json.d.results.length === that._maxPageSize) {
+                                    var posOffset = stmt.indexOf(" OFFSET ");
+                                    if (posOffset > 0) {
+                                        var offset = parseInt(stmt.substr(posOffset + 8)) + that._maxPageSize;
+                                        Log.print(Log.l.info, "next offset=" + offset);
+                                        json.d.__next = stmt.substr(0, posOffset) + " OFFSET " + offset;
+                                    } else {
+                                        Log.print(Log.l.info, "next offset=" + that._maxPageSize);
+                                        json.d.__next = stmt + " OFFSET " + that._maxPageSize;
+                                    }
                                 }
-                                json.d = that._pages[0];
+                            }
+                            if (prevResults) {
+                                prevResults = prevResults.concat(json.d.results);
+                                json.d.results = prevResults;
                             }
                             complete(json);
                             Log.ret(Log.l.trace);
@@ -929,16 +1125,18 @@
                 } else {
                     fncSelect = function () {
                         var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
-                        url += "/" + that.relationName;
                         if (that._isRinf) {
                             Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW");
-                            url += "VIEW";
+                            url += "/" + that.relationName + "VIEW";
+                        } else if (that.viewRelationName) {
+                            Log.print(Log.l.trace, "calling select: relationName=" + that.viewRelationName);
+                            url += "/" + that.viewRelationName;
                         } else if (that.formatId) {
                             Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW_" + that.formatId.toString());
-                            url += "VIEW_" + that.formatId.toString();
+                            url += "/" + that.relationName + "VIEW_" + that.formatId.toString();
                         } else {
                             Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "_ODataVIEW");
-                            url += "_ODataVIEW";
+                            url += "/" + that.relationName + "_ODataVIEW";
                         }
                         url += "?$format=json";
                         if (filterString && filterString.length > 0) {
@@ -951,7 +1149,7 @@
                                 if (viewOptions.orderAttribute) {
                                     orderBy += viewOptions.orderAttribute;
                                 } else {
-                                    orderBy += that.relationName + "VIEWID";
+                                    orderBy += that.pkName;
                                 }
                                 if (viewOptions.desc) {
                                     orderBy += "%20desc";
@@ -1009,21 +1207,26 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
                 }
-                var ret = this.extractRestriction(this, function(fs) {
-                    Log.print(Log.l.trace, "extractRestriction: SUCCESS!");
-                    filterString = fs;
-                }, error, restrictions).then(function() {
-                    if (typeof filterString === "string") {
-                        return fncSelect();
-                    } else {
-                        return WinJS.Promise.as();
-                    }
-                });
+                var ret;
+                if (that._isLocal && nextStmt) {
+                    ret = fncSelect();
+                } else {
+                    ret = this.extractRestriction(this, function(fs) {
+                        Log.print(Log.l.trace, "extractRestriction: SUCCESS!");
+                        filterString = fs;
+                    }, error, restrictions).then(function() {
+                        if (typeof filterString === "string") {
+                            return fncSelect();
+                        } else {
+                            return WinJS.Promise.as();
+                        }
+                    });
+                }
                 Log.ret(Log.l.trace);
                 return ret;
             },
@@ -1037,7 +1240,7 @@
                 Log.call(Log.l.trace, "AppData.formatViewData.");
                 var url = null;
                 if (response && response.d && response.d.__next) {
-                    if (response.d.__next.substr(0, 7) === "page://") {
+                    if (response.d.__next.substr(0, 7) === "page://" || response.d.__next.substr(0, 7) === "SELECT ") {
                         url = response.d.__next;
                     } else {
                         var pos = response.d.__next.indexOf("://");
@@ -1075,7 +1278,13 @@
                 var ret, i, j, page;
                 var that = this;
                 if (nextUrl) {
-                    if (nextUrl.substr(0, 7) === "page://") {
+                    if (nextUrl.substr(0, 7) === "SELECT ") {
+                        if (that._isLocal) {
+                            ret = that.select(complete, error, null, null, nextUrl, prevResults);
+                        } else {
+                            ret = WinJS.Promise.as();
+                        }
+                    } else if (nextUrl.substr(0, 7) === "page://") {
                         i = parseInt(nextUrl.substr(7));
                         if (that._pages && that._pages[i]) {
                             page = that._pages[i];
@@ -1158,7 +1367,7 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -1181,12 +1390,13 @@
              * @description Use this function to select a database record with the given recordId (primary key).
              *  The function will return the database record object in the response.d member of response. 
              */
-            selectById: function (complete, error, recordId) {
+            selectById: function (complete, error, recordId, progress) {
                 var ret;
                 Log.call(Log.l.trace, "AppData.formatViewData.", "relationName=" + this.relationName + " formatId=" + this.formatId + " recordId=" + recordId);
                 var that = this;
+                var fncSelectById;
                 if (that._isLocal) {
-                    var fncselectById = function() {
+                    fncSelectById = function() {
                         var relationName = that.relationName;
                         if (that.formatId) {
                             Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW_" + that.formatId.toString());
@@ -1209,7 +1419,6 @@
                                 }
                                 complete(json);
                             } else {
-                                Log.print(Log.l.error, "xsql: no data found in " + that.relationName + " for Id " + recordId);
                                 var err = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
                                 error(err);
                             }
@@ -1219,84 +1428,92 @@
                             error(err);
                         });
                     }
-                    if (!that.attribSpecs) {
-                        ret = that.getAttribSpecs(that, function () {
-                            Log.print(Log.l.trace, "getAttribSpecs: SELECT success");
-                        }, complete, error).then(function () {
-                            if (that.attribSpecs) {
-                                return fncselectById();
-                            } else {
-                                var curerr = { status: 404, statusText: "cannot extract attribSpecs" };
-                                error(curerr);
-                                return WinJS.Promise.as();
-                            }
-                        });
-                    } else {
-                        ret = fncselectById();
-                    }
                 } else {
-                    var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
-                    url += "/" + this.relationName;
-                    if (this._isRinf) {
-                        Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW");
-                        url += "VIEW";
-                    } else if (this.formatId) {
-                        Log.print(Log.l.trace, "calling select relationName=" + this.relationName + "VIEW_" + this.formatId.toString());
-                        url += "VIEW_" + this.formatId.toString();
-                    } else {
-                        Log.print(Log.l.trace, "calling select relationName=" + this.relationName + "_ODataVIEW");
-                        url += "_ODataVIEW";
-                    }
-                    if (typeof recordId === "undefined" || !recordId) {
-                        error({
-                            status: -1,
-                            statusText: "missing recordId"
-                        });
-                        Log.ret(Log.l.error, "error: missing recordId");
-                        return null;
-                    }
-                    // HTTP-GET request to remote server for JSON file response
-                    Log.print(Log.l.trace, "calling select recordId=" + recordId.toString());
-                    // select one line via id
-                    url += "(" + recordId.toString() + ")?$format=json";
-                    var user = AppData.getOnlineLogin();
-                    var password = AppData.getOnlinePassword();
-                    var options = {
-                        type: "GET",
-                        url: url,
-                        user: user,
-                        password: password,
-                        customRequestInitializer: function (req) {
-                            if (typeof req.withCredentials !== "undefined") {
-                                req.withCredentials = true;
-                            }
-                        },
-                        headers: {
-                            "Authorization": "Basic " + btoa(user + ":" + password)
+                    fncSelectById = function() {
+                        var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.appSettings.odata.onlinePath;
+                        if (that._isRinf) {
+                            Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW");
+                            url += "/" + that.relationName + "VIEW";
+                        } else if (that.viewRelationName) {
+                            Log.print(Log.l.trace, "calling select: relationName=" + that.viewRelationName);
+                            url += "/" + that.viewRelationName;
+                        } else if (that.formatId) {
+                            Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "VIEW_" + that.formatId.toString());
+                            url += "/" + that.relationName + "VIEW_" + that.formatId.toString();
+                        } else {
+                            Log.print(Log.l.trace, "calling select: relationName=" + that.relationName + "_ODataVIEW");
+                            url += "/" + that.relationName + "_ODataVIEW";
                         }
-                    };
-                    Log.print(Log.l.info, "calling xhr method=GET url=" + url);
-                    ret = WinJS.xhr(options).then(function xhrSuccess(response) {
-                        Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
-                        try {
-                            var obj = jsonParse(response.responseText);
-                            if (obj && obj.d) {
-                                complete(obj);
+                        if (typeof recordId === "undefined" || !recordId) {
+                            error({
+                                status: -1,
+                                statusText: "missing recordId"
+                            });
+                            Log.ret(Log.l.error, "error: missing recordId");
+                            return null;
+                        }
+                        // HTTP-GET request to remote server for JSON file response
+                        Log.print(Log.l.trace, "calling select recordId=" + recordId.toString());
+                        // select one line via id
+                        url += "(" + recordId.toString() + ")?$format=json";
+                        var user = AppData.getOnlineLogin();
+                        var password = AppData.getOnlinePassword();
+                        var options = {
+                            type: "GET",
+                            url: url,
+                            user: user,
+                            password: password,
+                            customRequestInitializer: function (req) {
+                                if (typeof req.withCredentials !== "undefined") {
+                                    req.withCredentials = true;
+                                }
+                            },
+                            headers: {
+                                "Authorization": "Basic " + btoa(user + ":" + password)
+                            }
+                        };
+                        Log.print(Log.l.info, "calling xhr method=GET url=" + url);
+                        return WinJS.xhr(options).then(function xhrSuccess(response) {
+                            Log.call(Log.l.trace, "AppData.formatViewData.", "method=GET");
+                            try {
+                                var obj = jsonParse(response.responseText);
+                                if (obj && obj.d) {
+                                    complete(obj);
+                                } else {
+                                    var err = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
+                                    error(err);
+                                }
+                            } catch (exception) {
+                                Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
+                                error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
+                            }
+                            Log.ret(Log.l.trace);
+                            return WinJS.Promise.as();
+                        }, function (errorResponse) {
+                            if (errorResponse && errorResponse.status === 404) {
+                                Log.print(Log.l.info, "record not found in " + that.relationName + " for Id " + recordId );
                             } else {
-                                var err = { status: 404, statusText: "no data found in " + that.relationName + " for Id " + recordId };
-                                error(err);
+                                Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             }
-                        } catch (exception) {
-                            Log.print(Log.l.error, "resource parse error " + (exception && exception.message));
-                            error({ status: 500, statusText: "data parse error " + (exception && exception.message) });
+                            error(errorResponse);
+                            return WinJS.Promise.as();
+                        }, progress);
+                    }
+                }
+                if (!that.attribSpecs) {
+                    ret = that.getAttribSpecs(that, function () {
+                        Log.print(Log.l.trace, "getAttribSpecs: SELECT success");
+                    }, complete, error).then(function () {
+                        if (that.attribSpecs) {
+                            return fncSelectById();
+                        } else {
+                            var curerr = { status: 404, statusText: "cannot extract attribSpecs" };
+                            error(curerr);
+                            return WinJS.Promise.as();
                         }
-                        Log.ret(Log.l.trace);
-                        return WinJS.Promise.as();
-                    }, function (errorResponse) {
-                        Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
-                        error(errorResponse);
-                        return WinJS.Promise.as();
                     });
+                } else {
+                    ret = fncSelectById();
                 }
                 Log.ret(Log.l.trace);
                 return ret;
@@ -1366,11 +1583,17 @@
                             if (prevRecId === recordId) {
                                 AppData.setRecordId(that.relationName, null);
                             }
-                            complete(response);
+                            try {
+                                complete(response);
+                            } catch (exception) {
+                                Log.print(Log.l.error, "delete return handler error " + (exception && exception.message));
+                                var err = { status: 500, statusText: "delete return handler error " + (exception && exception.message) };
+                                error(err);
+                            }
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                             return WinJS.Promise.as();
                         });
@@ -1443,7 +1666,7 @@
                             stmt += stmtValues + " WHERE \"" + primKeyId + "\"=?";
                             Log.print(Log.l.info, "xsql: " + stmt + " [" + values + "]");
                             return SQLite.xsql(that.db, stmt, values, that.connectionType).then(function xsqlSuccess(res) {
-                                Log.call(Log.l.trace, "AppData.formatViewData.", "method=DELETE rowsAffected=" + res.rowsAffected);
+                                Log.call(Log.l.trace, "AppData.formatViewData.", "method=UPDATE rowsAffected=" + res.rowsAffected);
                                 complete({});
                                 Log.ret(Log.l.trace);
                                 return WinJS.Promise.as();
@@ -1482,11 +1705,17 @@
                         Log.print(Log.l.info, "calling xhr method=PUT url=" + url);
                         return WinJS.xhr(options).then(function xhrSuccess(response) {
                             Log.call(Log.l.trace, "AppData.formatViewData.", "method=PUT");
-                            complete(response);
+                            try {
+                                complete(response);
+                            } catch (exception) {
+                                Log.print(Log.l.error, "update return handler error " + (exception && exception.message));
+                                var err = { status: 500, statusText: "update return handler error " + (exception && exception.message) };
+                                error(err);
+                            }
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -1657,7 +1886,7 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function(errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -1734,7 +1963,7 @@
                     Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
-                    Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                     error(errorResponse);
                 });
                 Log.ret(Log.l.trace);
@@ -1770,7 +1999,7 @@
                             if (viewOptions.orderAttribute) {
                                 orderBy += viewOptions.orderAttribute;
                             } else {
-                                orderBy += that.relationName + "VIEWID";
+                                orderBy += that.pkName;
                             }
                             if (viewOptions.desc) {
                                 orderBy += "%20desc";
@@ -1809,6 +2038,7 @@
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
+                        Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                         error(errorResponse);
                     });
                 }, error, restrictions);
@@ -2161,7 +2391,7 @@
                     Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
-                    Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                     error(errorResponse);
                 });
                 Log.ret(Log.l.trace);
@@ -2223,7 +2453,7 @@
                             return WinJS.Promise.as();
                         }
                     }, function (errorResponse) {
-                        Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                        Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                         error(errorResponse);
                     });
                 }
@@ -2358,7 +2588,7 @@
                     Log.ret(Log.l.trace);
                     return WinJS.Promise.as();
                 }, function (errorResponse) {
-                    Log.print(Log.l.error,"error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                     error(errorResponse);
                 });
                 Log.ret(Log.l.trace);
@@ -2534,6 +2764,7 @@
                                 return WinJS.Promise.as();
                             }
                         }, function (errorResponse) {
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -2611,6 +2842,7 @@
                         return WinJS.Promise.as();
                     }
                 }, function (errorResponse) {
+                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                     error(errorResponse);
                 });
                 // this will return a promise to controller
@@ -2709,7 +2941,7 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -2789,7 +3021,7 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         });
                     }
@@ -2951,7 +3183,7 @@
                             Log.ret(Log.l.trace);
                             return WinJS.Promise.as();
                         }, function (errorResponse) {
-                            Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                            Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                             error(errorResponse);
                         }).then(function () {
                             if (recordId) {
@@ -2994,6 +3226,7 @@
                                     Log.ret(Log.l.trace);
                                     return WinJS.Promise.as();
                                 }, function(errorResponse) {
+                                    Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                                     error(errorResponse);
                                 });
                             } else {
@@ -3159,7 +3392,12 @@
             Log.ret(Log.l.trace);
             return ret;
         },
-        call: function (name, params, complete, error) {
+        call: function (name, params, complete, error, isRegister) {
+            if (typeof isRegister === "boolean") {
+                this._isRegister = isRegister;
+            } else {
+                this._isRegister = false;
+            }
             var that = this;
             Log.call(Log.l.trace, "AppData.");
             var url = AppData.getBaseURL(AppData.appSettings.odata.onlinePort) + "/" + AppData.getOnlinePath(that._isRegister);
@@ -3170,9 +3408,11 @@
                     paramsString += prop + "=";
                     Log.print(Log.l.u1, prop + ": " + params[prop]);
                     if (typeof params[prop] === "string") {
-                        paramsString += "'" + params[prop] + "'";
-                    } else {
+                        paramsString += "'" + encodeURL(params[prop]) + "'";
+                    } else if (params[prop] || params[prop] === 0) {
                         paramsString += params[prop];
+                    } else {
+                        paramsString += "null";
                     }
                     paramsString += "&";
                 }
@@ -3196,7 +3436,7 @@
             };
             Log.print(Log.l.info, "calling xhr method=GET url=" + url);
             var ret = WinJS.xhr(options).then(function xhrSuccess(response) {
-                Log.call(Log.l.trace, "AppData.lgntInitData.", "method=GET");
+                Log.call(Log.l.trace, "AppData.call.", "method=GET");
                 try {
                     var json = jsonParse(response.responseText);
                     complete(json);
@@ -3207,7 +3447,7 @@
                 Log.ret(Log.l.trace);
                 return WinJS.Promise.as();
             }, function (errorResponse) {
-                Log.print(Log.l.error, "error status=" + errorResponse.status + " statusText=" + errorResponse.statusText);
+                Log.print(Log.l.error, "error=" + AppData.getErrorMsgFromResponse(errorResponse));
                 error(errorResponse);
             });
             Log.ret(Log.l.trace);
@@ -3390,6 +3630,22 @@
      * @memberof Binding
      */
     WinJS.Namespace.define("Binding.Converter", {
+        /**
+         * @member toBold
+         * @memberof Binding.Converter
+         * @description Use the Binding.Converter.toBold to covert a value to be used for font-weight style attribute:
+         <pre>
+         &lt;input class="win-textbox" type="text" data-win-bind="value: myData; style.fontWeight: myBoldFlag Binding.Converter.toBold" /&gt;
+         </pre>
+         True values are converted to "bold", false or empty values to "normal"
+         */
+        toBold: WinJS.Binding.converter(function (value) {
+            if (value) {
+                return "bold";
+            } else {
+                return "normal";
+            }
+        }),
         /**
          * @member toVisibility
          * @memberof Binding.Converter

@@ -10,6 +10,9 @@
 /// <reference path="../../../lib/convey/scripts/colors.js" />
 /// <reference path="../../../lib/convey/scripts/navigator.js" />
 /// <reference path="../../../lib/convey/scripts/appbar.js" />
+/// <reference path="../../../../plugins/cordova-plugin-statusbar/www/statusbar.js" />
+/// <reference path="../../../../plugins/cordova-plugin-device/www/device.js" />
+/// <reference path="../../../../plugins/cordova-plugin-fullscreen/www/AndroidFullScreen.js" />
 
 (function () {
     "use strict";
@@ -45,6 +48,66 @@
                 }
             }
         },
+        _refreshAfterFetchOverride: null,
+        /**
+         * @property {function} refreshAfterFetchOverride - Hook function for processing UI refresh after replication data is fetched
+         * @memberof Application
+         * @description Read/Write. Retrieves or sets an optional hook function for processing UI refresh after replication data is fetched.
+         *  This function is called from the framework ofter data is fetched via replication, e.g.:
+         <pre>
+            Application.refreshAfterFetchOverride = function () {
+                // do anything useful from time to time...
+            };
+         </pre>
+         */
+        refreshAfterFetchOverride: {
+            get: function () {
+                return Application._refreshAfterFetchOverride;
+            },
+            set: function (newRefreshAfterFetchOverride) {
+                Application._refreshAfterFetchOverride = newRefreshAfterFetchOverride;
+            }
+        },
+        refreshAfterFetch: function() {
+            if (typeof Application._refreshAfterFetchOverride === "function") {
+                Application._refreshAfterFetchOverride();
+            }
+        },
+
+        ensureScreenLayout: function () {
+            Log.call(Log.l.trace, ".");
+            var ret = null;
+            var isAndroid = false;
+            if (typeof device === "object" && typeof device.platform === "string") {
+                if (device.platform === "Android") {
+                    isAndroid = true;
+                }
+            }
+            if (isAndroid &&
+                typeof AndroidFullScreen === "object") {
+                try {
+                    var visibilityMode;
+                    if (AppData._persistentStates.fullScreen) {
+                        visibilityMode = AndroidFullScreen.SYSTEM_UI_FLAG_FULLSCREEN |
+                            AndroidFullScreen.SYSTEM_UI_FLAG_HIDE_NAVIGATION |
+                            AndroidFullScreen.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
+                    } else {
+                        visibilityMode = AndroidFullScreen.SYSTEM_UI_FLAG_VISIBLE;
+                    }
+                    Log.print(Log.l.trace, "AndroidFullScreen.setSystemUiVisibility visibilityMode=" + visibilityMode);
+                    AndroidFullScreen.setSystemUiVisibility(visibilityMode,
+                        function () {
+                            Log.print(Log.l.trace, "AndroidFullScreen.setSystemUiVisibility succeeded!");
+                        },
+                        function (error) {
+                            Log.print(Log.l.error, "AndroidFullScreen.setSystemUiVisibility failed!" + error);
+                        });
+                } catch (ex2) {
+                    Log.print(Log.l.error, "AndroidFullScreen bar error " + ex2.message);
+                }
+            }
+            Log.ret(Log.l.info);
+        },
         /**
          * @class PageFrame 
          * @memberof Application
@@ -62,6 +125,8 @@
             function PageFrame(aName) {
                 this._name = aName;
                 Application.pageframe = this;
+
+                AppData.persistentStatesDefaults = copyMissingMembersByValue(AppData.persistentStatesDefaults, AppData._persistentStatesDefaults);
 
                 this._prevOrientation = this._getOrientation();
                 Application.getOrientation = this._getOrientation.bind(this);
@@ -111,6 +176,13 @@
 
                 // Handle the deviceready event. 
                 onReady: function () {
+                    if (navigator.splashscreen &&
+                        typeof navigator.splashscreen.hide === "function") {
+                        var splashScreen = document.querySelector(".splash-screen-container");
+                        if (splashScreen && splashScreen.style) {
+                            splashScreen.style.display = "none";
+                        }
+                    }
                     // initial logging
                     Log.init({
                         target: Log.targets.console,
@@ -127,7 +199,8 @@
                                     target: Log.targets.console,
                                     level: AppData._persistentStates.logLevel,
                                     group: AppData._persistentStates.logGroup,
-                                    noStack: AppData._persistentStates.logNoStack
+                                    noStack: AppData._persistentStates.logNoStack,
+                                    logWinJS: AppData._persistentStates.logWinJS
                                 };
                                 Log.init(settings);
                             }
@@ -142,6 +215,7 @@
                 // Handle the application resume event 
                 onResume: function () {
                     Log.call(Log.l.trace, "PageFrame.", "");
+                    Application.ensureScreenLayout();
                     Log.ret(Log.l.trace);
                 },
 
@@ -164,13 +238,29 @@
                     Log.ret(Log.l.trace);
                 },
 
+                _onOnlineHandler: null,
+                _onOfflineHandler: null,
+                onOnlineHandler: {
+                    get: function () {
+                        return Application.pageframe._onOnlineHandler;
+                    },
+                    set: function (newHandler) {
+                        Application.pageframe._onOnlineHandler = newHandler;
+                    }
+                },
+                onOfflineHandler: {
+                    get: function () {
+                        return Application.pageframe._onOfflineHandler;
+                    },
+                    set: function (newHandler) {
+                        Application.pageframe._onOfflineHandler = newHandler;
+                    }
+                },
                 // Handle the application online event 
                 onOnline: function (eventInfo) {
                     Log.call(Log.l.info, "PageFrame.", "");
-                    if (Application.navigator &&
-                        Application.navigator.pageControl &&
-                        typeof Application.navigator.pageControl.online === "function") {
-                        Application.navigator.pageControl.online(eventInfo);
+                    if (typeof Application.pageframe._onOnlineHandler === "function") {
+                        Application.pageframe._onOnlineHandler(eventInfo);
                     }
                     Log.ret(Log.l.info);
                 },
@@ -178,10 +268,8 @@
                 // Handle the application resume event 
                 onOffline: function (eventInfo) {
                     Log.call(Log.l.info, "PageFrame.", "");
-                    if (Application.navigator &&
-                        Application.navigator.pageControl &&
-                        typeof Application.navigator.pageControl.offline === "function") {
-                        Application.navigator.pageControl.offline(eventInfo);
+                    if (typeof Application.pageframe._onOfflineHandler === "function") {
+                        Application.pageframe._onOfflineHandler(eventInfo);
                     }
                     Log.ret(Log.l.info);
                 },
@@ -211,9 +299,9 @@
                                 if (data) {
                                     AppData._persistentStates = JSON.parse(data);
                                     Log.print(Log.l.info, "data loaded from localStorage");
-                                    AppData._persistentStates = copyMissingMembersByValue(AppData._persistentStates, AppData.persistentStatesDefaults);
                                 }
                             }
+                            AppData._persistentStates = copyMissingMembersByValue(AppData._persistentStates, AppData.persistentStatesDefaults);
                         } catch (exception) {
                             Log.print(Log.l.error, "loadPersistentStates parse error " + exception.message);
                         }
@@ -375,7 +463,6 @@
                 // Globalization plugin provides locale per callback only
                 // finishes always with value of length > 0
                 initLanguage: function (complete, error, language) {
-                    var newLanguage;
                     Log.call(Log.l.trace, "PageFrame.", "");
                     function repairLanguage(language) {
                         var i, row, pos, lang;
@@ -438,6 +525,46 @@
                         language = "en-US";
                         return language;
                     }
+                    function checkForOverride(languageId) {
+                        var newLanguage;
+                        // check for existence of native WinRT resources
+                        // don't use language specific paths in this case
+                        // look: https://msdn.microsoft.com/library/windows/apps/xaml/hh965324
+                        var resources = Resources.get();
+                        if (languageId && !resources) {
+                            newLanguage = AppData.getLanguageFromId(languageId);
+                            Application.language = newLanguage;
+                            AppData._persistentStates.languageId = languageId;
+                            complete(Application.language);
+                        } else {
+                            if (languageId) {
+                                newLanguage = AppData.getLanguageFromId(languageId);
+                            } else {
+                                newLanguage = repairLanguage(language || window.navigator.userLanguage || window.navigator.language);
+                            }
+                            var bOk;
+                            if (resources) {
+                                if (Resources.primaryLanguage() === newLanguage) {
+                                    Log.print(Log.l.info, "newLanguage = " + newLanguage + " already set!");
+                                    bOk = true;
+                                } else {
+                                    Log.print(Log.l.info, "override newLanguage = " + newLanguage);
+                                    // override user setting in operating system here!
+                                    bOk = Resources.primaryLanguageOverride(newLanguage);
+                                }
+                            } else {
+                                bOk = true;
+                            }
+                            if (bOk) {
+                                Application.language = newLanguage;
+                                AppData._persistentStates.languageId = AppData.getLanguageId();
+                                complete(Application.language);
+                            } else {
+                                Log.print(Log.l.error, "primaryLanguageOverride(" + newLanguage + ") failed!");
+                                error(Application.language);
+                            }
+                        }
+                    }
                     // use language from globalization in app context!
                     if (typeof language === "undefined" &&
                         typeof navigator.globalization === "object") {
@@ -447,40 +574,17 @@
                                 if (locale) {
                                     Application.language = repairLanguage(locale.value);
                                 }
-                                complete(Application.language);
+                                checkForOverride(AppData.getLanguageId());
                             },
                             function (err) {
                                 Log.print(Log.l.error, "getLocaleName returned error=" + err);
                                 Application.language = "en-US";
+                                AppData._persistentStates.languageId = AppData.getLanguageId();
                                 error(Application.language);
                             }
                         );
                     } else {
-                        // check for existence of native WinRT resources
-                        // don't use language specific paths in this case
-                        // look: https://msdn.microsoft.com/library/windows/apps/xaml/hh965324
-                        var resources = Resources.get();
-                        if (AppData._persistentStates.languageId && !resources) {
-                            newLanguage = AppData.getLanguageFromId(AppData._persistentStates.languageId);
-                            Application.language = newLanguage;
-                            complete(Application.language);
-                        } else {
-                            var bOk;
-                            newLanguage = repairLanguage(language || window.navigator.userLanguage || window.navigator.language);
-                            if (resources) {
-                                // override user setting in operating system here!
-                                bOk = Resources.primaryLanguageOverride(newLanguage);
-                            } else {
-                                bOk = true;
-                            }
-                            if (bOk) {
-                                Application.language = newLanguage;
-                                complete(Application.language);
-                            } else {
-                                Log.print(Log.l.error, "primaryLanguageOverride(" + newLanguage + ") failed!");
-                                error(Application.language);
-                            }
-                        }
+                        checkForOverride(AppData._persistentStates.languageId);
                     }
                     Log.ret(Log.l.trace);
                 },
@@ -571,19 +675,24 @@
                     Log.call(Log.l.info, "PageFrame.", "");
                     if (!Application.pageframe.splashScreenDone) {
                         Application.pageframe.splashScreenDone = 1;
-                        var splashScreen = document.querySelector(".splash-screen-container");
-                        if (splashScreen) {
-                            Log.print(Log.l.info, "calling Animatioon.fadeOut for splashScreen");
-                            ret = WinJS.UI.Animation.fadeOut(splashScreen).done(function () {
-                                if (splashScreen.style) {
-                                    splashScreen.style.display = "none";
-                                }
-                                return WinJS.Promise.as();
-                            });
+                        if (navigator.splashscreen &&
+                            typeof navigator.splashscreen.hide === "function") {
+                            navigator.splashscreen.hide();
+                        } else {
+                            var splashScreen = document.querySelector(".splash-screen-container");
+                            if (splashScreen) {
+                                Log.print(Log.l.info, "calling Animatioon.fadeOut for splashScreen");
+                                ret = WinJS.UI.Animation.fadeOut(splashScreen).done(function () {
+                                    if (splashScreen.style) {
+                                        splashScreen.style.display = "none";
+                                    }
+                                    return Application.ensureScreenLayout();
+                                });
+                            }
                         }
                     }
                     if (!ret) {
-                        ret = WinJS.Promise.as();
+                        ret = Application.ensureScreenLayout();
                     }
                     Log.ret(Log.l.info);
                     return ret;
@@ -605,33 +714,6 @@
                     }
                     var colors = new Colors.ColorsClass(AppData._persistentStates.colorSettings);
 
-                    // special handling of app statusbar on iOS >= 7
-                    Log.print(Log.l.trace, "initialize StatusBar");
-                    try {
-                        if (typeof StatusBar === "object") {
-                            if (typeof StatusBar.show === "function") {
-                                StatusBar.show();
-                            }
-                            if (typeof StatusBar.overlaysWebView === "function") {
-                                StatusBar.overlaysWebView(false);
-                            }
-                            if (typeof StatusBar.backgroundColorByHexString === "function") {
-                                StatusBar.backgroundColorByHexString(Colors.navigationColor);
-                            }
-                            if (Colors.isDarkTheme) {
-                                if (typeof StatusBar.styleLightContent === "function") {
-                                    StatusBar.styleLightContent();
-                                }
-                            } else {
-                                if (typeof StatusBar.styleDefault === "function") {
-                                    StatusBar.styleDefault();
-                                }
-                            }
-                        }
-                    } catch (exception) {
-                        Log.print(Log.l.error, "status bar error " + exception.message);
-                    }
-
                     // Before calling WinJS.UI.processAll you have to read resjson and set the global "strings" variable
                     // and before that the language has to be known from the device
                     // call getLocaleName via Globalization plugin
@@ -639,12 +721,11 @@
                     WinJS.Promise.timeout(0).then(function () {
                         Application.pageframe.checkForLanguage();
                     });
+
                     Log.ret(Log.l.trace, "");
                 },
 
-                // after language is known and resources are loaded we can go on
-                // with actual initialize actions
-                post_initialize: function () {
+                post_initialize: function() {
                     Log.call(Log.l.trace, "PageFrame.", "");
 
                     // reset navigation history
@@ -700,8 +781,8 @@
                     }).then(function () {
                         Log.print(Log.l.trace, "calling enableAnimations");
                         ui.enableAnimations();
-                        return WinJS.Promise.timeout(Application.pageframe.splashScreenDone ? 0 : 1000);
-                    }).then(function () {
+                        return WinJS.Promise.timeout(Application.pageframe.splashScreenDone ? 0 : 10000);
+                    }).then(function() {
                         return Application.pageframe.hideSplashScreen();
                     });
                     Log.ret(Log.l.trace, "");

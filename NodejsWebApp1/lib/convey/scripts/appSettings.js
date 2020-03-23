@@ -22,12 +22,19 @@
             languageId: 0,
             prevLanguageId: 0,
             showAppBkg: false,
+            turnThumbsLeft: false,
             logEnabled: false,
             logLevel: 3,
             logGroup: false,
             logNoStack: true,
+            logWinJS: false,
             inputBorder: 1,
+            inputBorderRadius: 0,
+            inputBorderBottom: false,
+            iconStrokeWidth: 0,
             appBarSize: 48,
+            navHorzHeight: 48,
+            navVertWidth: 244,
             appBarHideOverflowButton: false,
             navigatorOptions: null,
             odata: {
@@ -74,6 +81,7 @@
          * @property {boolean} persistentStatesDefaults.logGroup - Enable/disable logging grouping.
          * @property {boolean} persistentStatesDefaults.logNoStack - Enable/disable logging optimization by ignoring function call stack on currently not logged functions.
          * @property {number} persistentStatesDefaults.inputBorder - Border width of HTML input controls in px. Default: 1
+         * @property {number} persistentStatesDefaults.inputBorderRadius - Border radius of HTML input controls in px. Default: 0
          * @property {number} persistentStatesDefaults.appBarSize - Height of application toolbar in px. Default: 48
          * @property {boolean} persistentStatesDefaults.appBarHideOverflowButton - Hide/show application toolbar overflow button. Default: false
          * @property {Object} persistentStatesDefaults.navigatorOptions - Optional application menu settings object. Default: null
@@ -119,6 +127,7 @@
             logGroup: false,
             logNoStack: true,
             inputBorder: 1,
+            inputBorderRadius: 0,
             odata: {
                 https: false,
                 hostName: "domino.convey.de",
@@ -134,15 +143,7 @@
         };
          </pre>
          */
-        persistentStatesDefaults: {
-            set: function(newPersistentStatesDefaults) {
-                AppData._persistentStatesDefaults = newPersistentStatesDefaults;
-                AppData._persistentStates = newPersistentStatesDefaults;
-            },
-            get: function() {
-                return AppData._persistentStatesDefaults;
-            }
-        },
+        persistentStatesDefaults: copyByValue(AppData._persistentStatesDefaults),
         getBaseURL: function (port) {
             return (AppData._persistentStates.odata.https ? "https" : "http") + "://" + AppData._persistentStates.odata.hostName +
                    (port !== 80 && port !== 443 ? ":" + port : "") +
@@ -282,18 +283,6 @@
                 }
             }
         },
-        _language: "",
-        /**
-         * @property {string} language - BCP-47 language tag
-         * @memberof AppData
-         * @description Read/Write. Retrieves or sets the {@link https://tools.ietf.org/html/bcp47 BCP-47 language tag} of the primary language currently active in the app.
-         */
-        language: {
-            get: function () { return Application._language; },
-            set: function(newLanguage) {
-                 Application._language = newLanguage;
-            }
-        },
         /**
          * @function getLanguageFromId
          * @param {number} languageId - A language identifier constant.
@@ -320,6 +309,7 @@
             }
             return "en-US";
         },
+        _defLanguageId: 1033,
         /**
          * @function getLanguageId
          * @returns {string} The current language identifier constant.
@@ -328,16 +318,28 @@
          *  The primary language will be determined from localization settings of the environment if not set in the app. If no language is set, a default value of 0x409 (decimal 1033) will be returned.
          */
         getLanguageId: function () {
-            var language = Application.language.toLowerCase();
+            var language = Application.language;
+            if (!language) {
+                language = AppData.getLanguageFromId(AppData._persistentStates.languageId);
+            }
+            if (language) {
+                language = language.toLowerCase();
+            }
             var languages = AppData.getDefLanguages();
             for (var i = 0; i < languages.length; i++) {
                 var row = languages[i];
                 if (row.DOMCode.toLowerCase() === language) {
                     Log.print(Log.l.trace, "found in default languages: " + row.LanguageSpecID);
-                    return row.LanguageSpecID;
+                    if (row.LanguageSpecID !== AppData._persistentStates.languageId) {
+                        AppData._persistentStates.languageId = row.LanguageSpecID;
+                    }
+                    return AppData._persistentStates.languageId;
                 }
             }
-            return 1033;
+            if (AppData._defLanguageId !== AppData._persistentStates.languageId) {
+                AppData._persistentStates.languageId = AppData._defLanguageId;
+            }
+            return AppData._persistentStates.languageId;
         },
         /**
          * @property {Object} appSettings - Application settings.
